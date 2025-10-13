@@ -1,0 +1,24 @@
+[package]
+name = "connectrpc-build"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Build utilities for Connect RPC."
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow = "1"
+convert_case = "0.8"
+pbjson-build = "0.8.0"
+prettyplease = "0.2"
+proc-macro2 = "1"
+prost = "0.14"
+prost-build = "0.14"
+prost-reflect = "0.16"
+protoc-fetcher = "0.1"
+quote = "1"
+syn = "2"

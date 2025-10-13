@@ -1,0 +1,19 @@
+[package]
+name = "reqwest-client"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+pbjson = "0.8.0"
+pbjson-types = "0.8.0"
+serde = { version = "1", features = ["derive"] }
+connectrpc = { path = "../../connectrpc", features = ["reqwest"] }
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+prost = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+connectrpc-build = { path = "../../connectrpc-build" }
+protoc-fetcher = "0.1.2"
