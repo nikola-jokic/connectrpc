@@ -1,6 +1,10 @@
 use crate::Result;
 use crate::connect::{DecodeMessage, EncodeMessage};
 
+/// Supported codecs for encoding and decoding messages.
+/// Currently supports Protobuf and JSON.
+///
+/// The connect allows for other codecs, but we only implement these two for now.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum Codec {
     Proto,
@@ -8,6 +12,11 @@ pub enum Codec {
 }
 
 impl Codec {
+    /// Returns the name of the codec as a static string.
+    /// "proto" for Protobuf and "json" for JSON.
+    ///
+    /// It is especially important since it is used in the
+    /// `Content-Type` header of HTTP requests.
     pub fn name(&self) -> &'static str {
         match self {
             Codec::Proto => "proto",
@@ -17,6 +26,7 @@ impl Codec {
 }
 
 impl Codec {
+    /// Encode a message into a byte vector using the specified codec.
     pub fn encode<T>(&self, message: &T) -> Vec<u8>
     where
         T: EncodeMessage,
@@ -31,6 +41,7 @@ impl Codec {
         }
     }
 
+    /// Decode a byte slice into a message using the specified codec.
     pub fn decode<T>(&self, data: &[u8]) -> Result<T>
     where
         T: DecodeMessage,

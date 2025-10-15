@@ -5,6 +5,8 @@ use http::{HeaderMap, HeaderName, HeaderValue, header::AsHeaderName};
 const BIN_SUFFIX: &str = "-bin";
 const TRAILER_PREFIX: &str = "trailer-";
 
+/// A trait for working with gRPC/Connect metadata.
+/// This trait is implemented for `http::HeaderMap`.
 pub trait Metadata {
     fn get_ascii(&self, key: impl AsHeaderName + AsRef<str>) -> Option<&str>;
 

@@ -12,6 +12,9 @@ use http::uri::{Authority, Scheme};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri};
 use std::time::Duration;
 
+/// A builder for constructing HTTP requests for Connect services.
+/// You can use this builder to create requests directly.
+/// The same builder is used internally by clients.
 #[derive(Debug, Clone)]
 pub struct Builder {
     scheme: Option<Scheme>,
@@ -50,11 +53,13 @@ impl Builder {
         Self::default()
     }
 
+    /// Set the scheme for the request. Typically either `http` or `https`.
     pub fn scheme(mut self, scheme: Scheme) -> Self {
         self.scheme = Some(scheme);
         self
     }
 
+    /// Set the authority (host and optional port) for the request.
     pub fn authority(mut self, authority: impl Into<String>) -> Result<Self> {
         self.authority = Some(
             authority
@@ -65,6 +70,9 @@ impl Builder {
         Ok(self)
     }
 
+    /// Set a path prefix for the request. If you are using something such as /internal as a
+    /// prefix for all your services, you can set it here. The leading and trailing '/' will be
+    /// trimmed if present.
     pub fn path_prefix(mut self, path: impl Into<String>) -> Self {
         self.path_prefix = Some(path.into().trim_matches('/').to_string());
         self
@@ -310,6 +318,14 @@ impl Default for RequestResponseOptions {
     }
 }
 
+/// A unary request with metadata and a message.
+/// This is used by both client and server.
+///
+/// The reason we have our own request type instead of using
+/// `http::Request<T>` directly is that we want to ensure
+/// that the metadata is always a `HeaderMap` and the creation
+/// of the request is not containing the URI, method, etc. which
+/// won't be respected anyway.
 #[derive(Debug, Clone)]
 pub struct UnaryRequest<T>
 where
@@ -323,6 +339,7 @@ impl<T> UnaryRequest<T>
 where
     T: Send + Sync,
 {
+    /// Create a new unary request with the given message and empty metadata.
     pub fn new(message: T) -> Self {
         Self {
             metadata: HeaderMap::new(),
@@ -330,14 +347,17 @@ where
         }
     }
 
+    /// Returns a reference to the metadata.
     pub fn metadata(&self) -> &HeaderMap {
         &self.metadata
     }
 
+    /// Returns a mutable reference to the metadata.
     pub fn metadata_mut(&mut self) -> &mut HeaderMap {
         &mut self.metadata
     }
 
+    /// Decomposes the request into its parts.
     pub fn into_parts(self) -> Parts<T> {
         Parts {
             metadata: self.metadata,
@@ -345,6 +365,7 @@ where
         }
     }
 
+    /// Creates a request from its parts.
     pub fn from_parts(parts: Parts<T>) -> Self {
         Self {
             metadata: parts.metadata,
@@ -352,10 +373,12 @@ where
         }
     }
 
+    /// Consumes the request, returning the message.
     pub fn into_message(self) -> T {
         self.message
     }
 
+    /// Returns a reference to the message.
     pub fn message(&self) -> &T {
         &self.message
     }

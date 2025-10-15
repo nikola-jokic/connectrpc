@@ -7,6 +7,7 @@ use crate::response::UnaryResponse;
 use bytes::Bytes;
 use http::Uri;
 
+/// A client implementation using the `reqwest` HTTP client library.
 #[derive(Clone)]
 pub struct ReqwestClient {
     client: reqwest::Client,
@@ -27,6 +28,11 @@ where
     I: EncodeMessage,
     O: DecodeMessage,
 {
+    /// Calls a unary RPC method with the given path and request.
+    /// The path is the RPC path, e.g. "/package.Service/Method".
+    ///
+    /// This should mostly be used by the wrapper Client implementation, but can be used directly
+    /// if needed.
     async fn call_unary(&self, path: &str, req: UnaryRequest<I>) -> Result<UnaryResponse<O>> {
         let req = self.common.unary_request(path, req)?;
         let timeout = request::get_timeout(&req);
@@ -37,6 +43,8 @@ where
         self.common.unary_response(response).await
     }
 
+    /// Calls a unary RPC method with the given path and request using HTTP GET.
+    /// The path is the RPC path, e.g. "/package.Service/Method".
     async fn call_unary_get(&self, path: &str, req: UnaryRequest<I>) -> Result<UnaryResponse<O>> {
         let req = self.common.unary_get_request(path, req)?;
         let timeout = request::get_timeout(&req);

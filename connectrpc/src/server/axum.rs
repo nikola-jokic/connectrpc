@@ -12,6 +12,12 @@ use prost::Message;
 use serde::{Serialize, de::DeserializeOwned};
 use std::pin::Pin;
 
+/// A trait for handling unary RPC requests in an Axum application.
+///
+/// This implementation is internally used by the `axum` module to handle
+/// incoming unary RPC requests. It defines a method `call` that takes an
+/// HTTP request, a state, and a common server instance, and returns a future
+/// that resolves to an HTTP response.
 pub trait RpcUnaryHandler<TMReq, TMRes, TState>: Clone + Send + Sync + Sized + 'static {
     type Future: Future<Output = Response> + Send + 'static;
 
@@ -103,6 +109,7 @@ where
     }
 }
 
+/// Parses a unary POST request, extracting the body and decoding it using the appropriate codec.
 async fn parse_unary_post_request<TMReq>(
     req: Request<Body>,
     srv: CommonServer,
@@ -139,6 +146,8 @@ where
     ))
 }
 
+/// Parses a unary GET request, extracting the body from the URL and decoding it using the
+/// appropriate codec.
 async fn parse_unary_get_request<TMReq>(
     req: Request<Body>,
     srv: CommonServer,

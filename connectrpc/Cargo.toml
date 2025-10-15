@@ -32,3 +32,6 @@ bytes = "1"
 form_urlencoded = "1.2.1"
 axum = { version = "0.8", optional = true }
 hyper = { version = "1.7", default-features = false, optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

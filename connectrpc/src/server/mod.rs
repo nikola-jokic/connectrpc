@@ -11,6 +11,10 @@ use std::collections::BTreeMap;
 #[cfg(feature = "axum")]
 pub mod axum;
 
+/// A common server implementation that can be used by different HTTP server libraries.
+/// For now, it is basically an empty struct with some helper methods.
+///
+/// However, keeping it around allows us to add codecs if needed in the future.
 #[derive(Debug, Clone, Default)]
 pub struct CommonServer {}
 
@@ -45,6 +49,9 @@ impl CommonServer {
         Ok(codec)
     }
 
+    /// Parse a unary GET request.
+    /// This parses the query string and decodes the message.
+    /// If the request is not valid, it returns an error.
     pub fn parse_unary_get_request<Res>(&self, uri: &Uri) -> Result<(Res, Codec)>
     where
         Res: DecodeMessage,

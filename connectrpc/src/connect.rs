@@ -1,9 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+/// Codec represents the encoding format for messages.
+/// In theory, it could be only Serialize if json is used,
+/// and only prost::Message if proto is used. But having both
+/// makes it easier to switch between the two which is especially
+/// useful for server implementation.
 pub trait EncodeMessage: prost::Message + Serialize {}
 
 impl<T> EncodeMessage for T where T: prost::Message + Serialize {}
 
+/// DecodeMessage represents the decoding format for messages.
+/// In theory, it could be only Deserialize if json is used,
+/// and only prost::Message if proto is used. But having both
+/// makes it easier to switch between the two which is especially
+/// useful for server implementation.
 pub trait DecodeMessage: prost::Message + for<'de> Deserialize<'de> + Default {}
 
 impl<T> DecodeMessage for T where T: prost::Message + for<'de> Deserialize<'de> + Default {}
@@ -50,7 +60,8 @@ pub enum ConnectCode {
     Unauthenticated,
 }
 
-// https://connectrpc.com/docs/protocol/#http-to-error-code
+/// Convert an HTTP status code to a ConnectCode.
+/// https://connectrpc.com/docs/protocol/#http-to-error-code
 impl From<http::StatusCode> for ConnectCode {
     fn from(code: http::StatusCode) -> Self {
         use http::StatusCode;

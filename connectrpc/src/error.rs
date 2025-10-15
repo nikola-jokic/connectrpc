@@ -7,6 +7,7 @@ use std::fmt;
 
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// A general error type for Connect operations.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -44,14 +45,18 @@ pub enum Error {
 }
 
 impl Error {
+    /// Create an invalid request error with the given message.
     pub fn invalid_request(msg: impl fmt::Display) -> Self {
         Self::InvalidRequest(msg.to_string())
     }
 
+    /// Create a not found error with the given message.
     pub fn internal(message: impl fmt::Display) -> Error {
         Error::ConnectError(Box::new(ConnectError::new(ConnectCode::Internal, message)))
     }
 
+    /// Create an unsupported media type error with the given message.
+    /// This is typically used when the message codec is not supported by the server.
     pub fn unsupported_media_type(msg: impl fmt::Display) -> Error {
         Error::UnsupportedMessageCodec(msg.to_string())
     }
