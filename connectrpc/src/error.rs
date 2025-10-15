@@ -57,8 +57,102 @@ impl Error {
 
     /// Create an unsupported media type error with the given message.
     /// This is typically used when the message codec is not supported by the server.
+    ///
+    /// Unsupported media type error results in UNSUPPORTED_MEDIA_TYPE
     pub fn unsupported_media_type(msg: impl fmt::Display) -> Error {
         Error::UnsupportedMessageCodec(msg.to_string())
+    }
+
+    /// Already exists error results in CONFLICT
+    pub fn already_exists(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::AlreadyExists,
+            message,
+        )))
+    }
+
+    /// Unknown error results in INTERNAL_SERVER_ERROR
+    pub fn unknown(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(ConnectCode::Unknown, message)))
+    }
+
+    /// Invalid arguments results in BAD_REQUEST
+    pub fn invalid_argument(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::InvalidArgument,
+            message,
+        )))
+    }
+
+    /// Not found error results in NOT_FOUND
+    pub fn not_found(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(ConnectCode::NotFound, message)))
+    }
+
+    /// Permission denied results in FORBIDDEN
+    pub fn permission_denied(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::PermissionDenied,
+            message,
+        )))
+    }
+
+    /// Resource exhausted results in TOO_MANY_REQUESTS
+    pub fn resource_exhausted(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::ResourceExhausted,
+            message,
+        )))
+    }
+
+    /// Failed precondition results in FAILED_PRECONDITION
+    pub fn failed_precondition(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::FailedPrecondition,
+            message,
+        )))
+    }
+
+    /// Aborted results in CONFLICT
+    pub fn aborted(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(ConnectCode::Aborted, message)))
+    }
+
+    /// Out of range results in BAD_REQUEST
+    pub fn out_of_range(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::OutOfRange,
+            message,
+        )))
+    }
+
+    /// Unimplemented results in NOT_IMPLEMENTED
+    pub fn unimplemented(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::Unimplemented,
+            message,
+        )))
+    }
+
+    /// Unavailable results in SERVICE_UNAVAILABLE
+    pub fn unavailable(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::Unavailable,
+            message,
+        )))
+    }
+
+    /// Data loss results in INTERNAL_SERVER_ERROR
+    pub fn data_loss(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(ConnectCode::DataLoss, message)))
+    }
+
+    /// Unauthenticated results in UNAUTHORIZED
+    pub fn unauthenticated(message: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(
+            ConnectCode::Unauthenticated,
+            message,
+        )))
     }
 }
 
@@ -246,5 +340,137 @@ mod tests {
         let body = String::from_utf8(response.body().clone()).unwrap();
         let expected_body = r#"{"code":"unsupported_media_type","message":"unsupported codec"}"#;
         assert_eq!(body, expected_body);
+    }
+
+    #[test]
+    fn test_internal_error() {
+        let err = Error::internal("internal error");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::Internal);
+        assert_eq!(
+            connect_err.http_code(),
+            http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(connect_err.message, "internal error");
+    }
+
+    #[test]
+    fn test_unsupported_media_type() {
+        let err = Error::unsupported_media_type("unsupported media type");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::UnsupportedMediaType);
+        assert_eq!(
+            connect_err.http_code(),
+            http::StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(connect_err.message, "unsupported media type");
+    }
+
+    #[test]
+    fn test_not_found_error() {
+        let err = Error::not_found("resource not found");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::NotFound);
+        assert_eq!(connect_err.http_code(), http::StatusCode::NOT_FOUND);
+        assert_eq!(connect_err.message, "resource not found");
+    }
+
+    #[test]
+    fn test_already_exists_error() {
+        let err = Error::already_exists("resource already exists");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::AlreadyExists);
+        assert_eq!(connect_err.http_code(), http::StatusCode::CONFLICT);
+        assert_eq!(connect_err.message, "resource already exists");
+    }
+
+    #[test]
+    fn test_unknown_error() {
+        let err = Error::unknown("unknown error occurred");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::Unknown);
+        assert_eq!(
+            connect_err.http_code(),
+            http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(connect_err.message, "unknown error occurred");
+    }
+
+    #[test]
+    fn test_permission_denied_error() {
+        let err = Error::permission_denied("permission denied");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::PermissionDenied);
+        assert_eq!(connect_err.http_code(), http::StatusCode::FORBIDDEN);
+        assert_eq!(connect_err.message, "permission denied");
+    }
+
+    #[test]
+    fn test_resource_exhausted_error() {
+        let err = Error::resource_exhausted("resource exhausted");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::ResourceExhausted);
+        assert_eq!(connect_err.http_code(), http::StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(connect_err.message, "resource exhausted");
+    }
+
+    #[test]
+    fn test_failed_precondition_error() {
+        let err = Error::failed_precondition("failed precondition");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::FailedPrecondition);
+        assert_eq!(
+            connect_err.http_code(),
+            http::StatusCode::PRECONDITION_FAILED
+        );
+        assert_eq!(connect_err.message, "failed precondition");
+    }
+
+    #[test]
+    fn test_aborted_error() {
+        let err = Error::aborted("operation aborted");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::Aborted);
+        assert_eq!(connect_err.http_code(), http::StatusCode::CONFLICT);
+        assert_eq!(connect_err.message, "operation aborted");
+    }
+
+    #[test]
+    fn test_out_of_range_error() {
+        let err = Error::out_of_range("value out of range");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::OutOfRange);
+        assert_eq!(connect_err.http_code(), http::StatusCode::BAD_REQUEST);
+        assert_eq!(connect_err.message, "value out of range");
+    }
+
+    #[test]
+    fn test_unimplemented_error() {
+        let err = Error::unimplemented("method unimplemented");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::Unimplemented);
+        assert_eq!(connect_err.http_code(), http::StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(connect_err.message, "method unimplemented");
+    }
+
+    #[test]
+    fn test_data_loss_error() {
+        let err = Error::data_loss("data loss occurred");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::DataLoss);
+        assert_eq!(
+            connect_err.http_code(),
+            http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(connect_err.message, "data loss occurred");
+    }
+
+    #[test]
+    fn test_unauthenticated_error() {
+        let err = Error::unauthenticated("unauthenticated access");
+        let connect_err: ConnectError = err.into();
+        assert_eq!(connect_err.code(), ConnectCode::Unauthenticated);
+        assert_eq!(connect_err.http_code(), http::StatusCode::UNAUTHORIZED);
+        assert_eq!(connect_err.message, "unauthenticated access");
     }
 }
