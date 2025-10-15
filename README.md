@@ -132,3 +132,15 @@ reqwest = { version = "0.12", features = ["json", "gzip"] }
 connectrpc-build = "0.1"
 protoc-fetcher = "0.1.2"
 ```
+
+## Thanks
+
+This project is based on the works of:
+- https://github.com/lann/connect-rpc-rs
+- https://github.com/AThilenius/axum-connect
+
+I'm grateful for their contributions to the Rust ecosystem and their pioneering work in implementing the Connect protocol. Their efforts have laid the groundwork for this project, and I hope to build upon their successes to create a robust and efficient ConnectRPC implementation in Rust.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.

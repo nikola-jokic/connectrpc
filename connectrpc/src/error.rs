@@ -2,7 +2,7 @@ use http::HeaderMap;
 
 use crate::b64;
 use crate::connect::ConnectCode;
-use crate::header::{self, CONNECT_ERROR_CONTENT_TYPE, CONTENT_TYPE_APPLICATION_JSON};
+use crate::header::{self, CONNECT_ERROR_CONTENT_TYPE};
 use std::fmt;
 
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -157,7 +157,7 @@ impl From<Error> for http::Response<Vec<u8>> {
         let body = serde_json::to_vec(&error).unwrap_or_default();
         let mut builder = http::Response::builder()
             .status(error.http_code())
-            .header(header::CONTENT_TYPE, CONTENT_TYPE_APPLICATION_JSON);
+            .header(header::CONTENT_TYPE, CONNECT_ERROR_CONTENT_TYPE);
 
         for (name, value) in error.metadata().iter() {
             builder = builder.header(name, value);
@@ -230,8 +230,13 @@ mod tests {
         let response: http::Response<Vec<u8>> = err.into();
         assert_eq!(response.status(), http::StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            CONTENT_TYPE_APPLICATION_JSON
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            CONNECT_ERROR_CONTENT_TYPE.to_str().unwrap(),
         );
         let body = String::from_utf8(response.body().clone()).unwrap();
         let expected_body = r#"{"code":"unsupported_media_type","message":"unsupported codec"}"#;

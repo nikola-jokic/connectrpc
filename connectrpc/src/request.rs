@@ -2,6 +2,7 @@ use crate::Result;
 use crate::b64;
 use crate::codec::Codec;
 use crate::error::Error;
+use crate::header;
 use crate::header::{
     ACCEPT_ENCODING, CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1, CONNECT_TIMEOUT_MS,
     CONTENT_ENCODING, CONTENT_TYPE,
@@ -128,16 +129,29 @@ impl Builder {
     }
 
     /// Set the content encoding of the request.
-    pub fn content_encoding(mut self, encoding: impl Into<String>) -> Self {
-        self.content_encoding = Some(encoding.into());
-        self
+    pub fn content_encoding(mut self, encoding: impl Into<String>) -> Result<Self> {
+        let content_encoding: String = encoding.into();
+        if header::is_valid_http_token(&content_encoding) {
+            return Err(Error::invalid_request(format!(
+                "invalid content encoding: {}",
+                content_encoding
+            )));
+        }
+        self.content_encoding = Some(content_encoding);
+        Ok(self)
     }
 
     /// Add an accepted encoding to the request.
-    pub fn accept_encodings(mut self, encoding: impl Into<String>) -> Self {
-        self.accept_encodings
-            .push(encoding.into().try_into().unwrap());
-        self
+    pub fn accept_encodings(mut self, encoding: impl Into<String>) -> Result<Self> {
+        let encoding: String = encoding.into();
+        if !header::is_valid_http_token(&encoding) {
+            return Err(Error::invalid_request(format!(
+                "invalid accept encoding: {}",
+                encoding
+            )));
+        }
+        self.accept_encodings.push(encoding.try_into().unwrap());
+        Ok(self)
     }
 
     /// Set the message codec (e.g. proto or json)
