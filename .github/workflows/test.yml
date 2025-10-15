@@ -1,0 +1,33 @@
+name: Tests
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    runs-on: ubuntu-latest
+    name: ubuntu / ${{ matrix.toolchain }}
+    strategy:
+      matrix:
+        toolchain: [stable, beta]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@5d458579430fc14a04a08a1e7d3694f545e91ce6
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Test all features
+        run: cargo test --locked --all-features --verbose
+      - name: Test doc
+        run: cargo test --locked --all-features --doc
+

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::Result;
 use crate::b64;
 use crate::codec::Codec;
@@ -8,6 +6,7 @@ use crate::error::Error;
 use crate::header::{CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1};
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Uri};
+use std::collections::BTreeMap;
 
 #[cfg(feature = "axum")]
 pub mod axum;
@@ -202,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unary_get_request_proto() {
+    fn test_parse_unary_get_request_proto_b64() {
         let srv = CommonServer::new();
         let msg = TestMessage { foo: "bar".into() };
         let val = b64::url_encode(msg.encode_to_vec());
@@ -210,6 +209,22 @@ mod tests {
         let uri: Uri = format!("/service/method?connect=v1&encoding=proto&message={val}&base64=1")
             .parse()
             .unwrap();
+        let (body, codec) = srv.parse_unary_get_request::<TestMessage>(&uri).unwrap();
+        assert_eq!(codec, Codec::Proto);
+        assert_eq!(body, TestMessage { foo: "bar".into() });
+    }
+
+    #[test]
+    fn test_parse_unary_get_request_proto_no_b64() {
+        let srv = CommonServer::new();
+        let msg = TestMessage { foo: "bar".into() };
+        let val = String::from_utf8(msg.encode_to_vec()).unwrap();
+        let query = form_urlencoded::Serializer::new(String::new())
+            .append_pair("connect", "v1")
+            .append_pair("encoding", "proto")
+            .append_pair("message", &val)
+            .finish();
+        let uri: Uri = format!("/service/method?{query}").parse().unwrap();
         let (body, codec) = srv.parse_unary_get_request::<TestMessage>(&uri).unwrap();
         assert_eq!(codec, Codec::Proto);
         assert_eq!(body, TestMessage { foo: "bar".into() });
