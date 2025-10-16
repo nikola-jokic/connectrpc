@@ -62,7 +62,9 @@ where
             let mut builder = http::Response::builder().status(status);
 
             for (k, v) in headers.into_iter() {
-                builder = builder.header(k.unwrap(), v);
+                if let Some(header_name) = k {
+                    builder = builder.header(header_name, v);
+                }
             }
 
             builder = builder.header(
@@ -170,4 +172,96 @@ where
             accept_encodings: vec![],
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::response::UnaryResponse;
+    use crate::{Codec, request::UnaryRequest};
+    use prost::Message;
+    use serde::{Deserialize, Serialize};
+
+    #[test]
+    fn test_error_to_response() {
+        let err = Error::already_exists("example");
+        let response: Response = Response::from(err);
+        assert_eq!(response.status(), 409);
+    }
+
+    #[derive(Message, Serialize, Deserialize, Clone)]
+    struct TestRequest {
+        #[prost(string, tag = "1")]
+        message: String,
+    }
+
+    #[derive(Message, Serialize, Deserialize, Clone)]
+    struct TestResponse {
+        #[prost(string, tag = "1")]
+        message: String,
+    }
+
+    #[derive(Clone)]
+    struct State {}
+
+    #[tokio::test]
+    async fn test_handler_error() {
+        use crate::header::{CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1};
+
+        let state = State {};
+        let srv = CommonServer::default();
+        let handler = async |_state: State,
+                             _req: UnaryRequest<TestRequest>|
+               -> Result<UnaryResponse<TestResponse>> {
+            Err(Error::already_exists("the resource already exists"))
+        };
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("http://localhost/svc.Service/Method")
+            .header("Content-Type", "application/json")
+            .header(CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1)
+            .body(Body::from(r#"{"message":"hello"}"#))
+            .unwrap();
+        let response = handler.call(request, state, srv).await;
+        assert_eq!(response.status(), 409);
+    }
+
+    #[tokio::test]
+    async fn test_handler_success() {
+        use crate::header::{CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1};
+
+        let state = State {};
+        let srv = CommonServer::default();
+        let handler = async |_state: State,
+                             req: UnaryRequest<TestRequest>|
+               -> Result<UnaryResponse<TestResponse>> {
+            let response = TestResponse {
+                message: format!("echo: {}", req.message().message),
+            };
+            Ok(UnaryResponse::new(response))
+        };
+
+        let codec = Codec::Proto;
+        let req = codec.encode(&TestRequest {
+            message: "hello".into(),
+        });
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("http://localhost/svc.Service/Method")
+            .header("Content-Type", "application/proto")
+            .header(CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1)
+            .body(Body::from(req.clone()))
+            .unwrap();
+        let response = handler.call(request, state, srv).await;
+        assert_eq!(response.status(), 200);
+        let (parts, body) = response.into_parts();
+        assert_eq!(
+            parts.headers.get("Content-Type").unwrap(),
+            "application/proto"
+        );
+        let body_bytes = body::to_bytes(body, usize::MAX).await.unwrap();
+        let res = codec.decode::<TestResponse>(&body_bytes).unwrap();
+        assert_eq!(res.message, "echo: hello");
+    }
 }
