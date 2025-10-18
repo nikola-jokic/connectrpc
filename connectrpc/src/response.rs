@@ -4,6 +4,7 @@ use crate::stream::ConnectFrame;
 use crate::{Codec, Result};
 use futures_util::Stream;
 use futures_util::StreamExt;
+use core::fmt;
 use std::pin::Pin;
 
 /// The parts of a unary response.
@@ -106,6 +107,19 @@ where
     pub codec: Codec,
     pub message_stream: Pin<Box<dyn Stream<Item = Result<ConnectFrame>> + Send + Sync>>,
     pub _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> fmt::Debug for ServerStreamingResponse<T>
+where
+    T: Send + Sync + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerStreamingResponse")
+            .field("status", &self.status)
+            .field("metadata", &self.metadata)
+            .field("codec", &self.codec)
+            .finish()
+    }
 }
 
 impl<T> ServerStreamingResponse<T>
