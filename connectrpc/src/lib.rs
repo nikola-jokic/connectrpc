@@ -8,7 +8,9 @@ pub mod header;
 pub mod metadata;
 pub mod request;
 pub mod response;
+#[cfg(feature = "server")]
 pub mod server;
+pub mod stream;
 
 pub use crate::codec::Codec;
 pub use crate::error::Error;

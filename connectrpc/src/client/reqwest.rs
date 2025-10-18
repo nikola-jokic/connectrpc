@@ -1,9 +1,11 @@
 use super::{AsyncUnaryClient, CommonClient};
 use crate::Result;
+use crate::client::AsyncStreamingClient;
 use crate::codec::Codec;
 use crate::connect::{DecodeMessage, EncodeMessage};
-use crate::request::{self, UnaryRequest};
-use crate::response::UnaryResponse;
+use crate::request::{self, StreamingRequest, UnaryRequest};
+use crate::response::{ServerStreamingResponse, UnaryResponse};
+use crate::stream::ConnectFrame;
 use bytes::Bytes;
 use http::Uri;
 
@@ -54,6 +56,37 @@ where
         let response = self.client.execute(req).await?;
         let response = Self::response_to_http_bytes(response).await?;
         self.common.unary_response(response).await
+    }
+}
+
+impl<I, O> AsyncStreamingClient<I, O> for ReqwestClient
+where
+    I: EncodeMessage,
+    O: DecodeMessage,
+{
+    async fn call_server_streaming(
+        &self,
+        path: &str,
+        req: StreamingRequest<I>,
+    ) -> Result<ServerStreamingResponse<O>> {
+        let req = self.common.streaming_request(path, req)?;
+        let timeout = request::get_timeout(&req);
+        let mut req: reqwest::Request = req.try_into()?;
+        *req.timeout_mut() = timeout;
+        let response = self.client.execute(req).await?;
+        if response.status().is_success() {
+            let stream = response.bytes_stream();
+            let frames = ConnectFrame::bytes_stream(stream);
+            Ok(ServerStreamingResponse {
+                status: http::StatusCode::OK,
+                codec: self.common.message_codec,
+                metadata: http::HeaderMap::new(),
+                message_stream: std::boxed::Box::pin(frames),
+                _marker: std::marker::PhantomData,
+            })
+        } else {
+            todo!()
+        }
     }
 }
 
