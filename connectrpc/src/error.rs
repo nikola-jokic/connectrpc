@@ -50,6 +50,10 @@ impl Error {
         Self::InvalidRequest(msg.to_string())
     }
 
+    pub(crate) fn body(err: impl Into<BoxError>) -> Self {
+        Self::BodyError(err.into())
+    }
+
     /// Create a not found error with the given message.
     pub fn internal(message: impl fmt::Display) -> Error {
         Error::ConnectError(Box::new(ConnectError::new(ConnectCode::Internal, message)))
