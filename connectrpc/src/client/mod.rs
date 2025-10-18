@@ -1,8 +1,5 @@
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
-
-#[cfg(feature = "async")]
-use futures_util::Stream;
 #[cfg(feature = "reqwest")]
 pub use reqwest::ReqwestClient;
 
