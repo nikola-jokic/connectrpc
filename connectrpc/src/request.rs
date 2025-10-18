@@ -2,10 +2,10 @@ use crate::Result;
 use crate::b64;
 use crate::codec::Codec;
 use crate::error::Error;
-use crate::header;
 use crate::header::{
-    ACCEPT_ENCODING, CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1, CONNECT_TIMEOUT_MS,
-    CONTENT_ENCODING, CONTENT_TYPE,
+    self, ACCEPT_ENCODING, CONNECT_ACCEPT_ENCODING, CONNECT_CONTENT_ENCODING,
+    CONNECT_PROTOCOL_VERSION, CONNECT_PROTOCOL_VERSION_1, CONNECT_TIMEOUT_MS, CONTENT_ENCODING,
+    CONTENT_TYPE,
 };
 use crate::metadata::Metadata;
 use http::uri::{Authority, Scheme};
@@ -265,6 +265,30 @@ impl Builder {
         Ok(req)
     }
 
+    /// Build a streaming request with the given message stream as the body.
+    /// POST request will be used.
+    ///
+    /// https://connectrpc.com/docs/protocol#streaming-request
+    pub fn streaming(mut self, message: Vec<u8>) -> Result<http::Request<Vec<u8>>> {
+        self.validate()?;
+        let mut req = self.request_base(Method::POST, message)?;
+        let headers = req.headers_mut();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&format!(
+                "application/connect+{}",
+                self.message_codec.as_ref().unwrap().name()
+            ))?,
+        );
+
+        headers.insert(CONNECT_CONTENT_ENCODING, self.request_content_encoding());
+        // Streaming-Accept-Encoding → "connect-accept-encoding" Content-Coding [...]
+        for value in std::mem::take(&mut self.accept_encodings) {
+            req.headers_mut().append(CONNECT_ACCEPT_ENCODING, value);
+        }
+        Ok(req)
+    }
+
     /// Validate that all required fields are set.
     ///
     /// This method will be called automatically by the build methods.
@@ -336,6 +360,63 @@ where
 }
 
 impl<T> UnaryRequest<T>
+where
+    T: Send + Sync,
+{
+    /// Create a new unary request with the given message and empty metadata.
+    pub fn new(message: T) -> Self {
+        Self {
+            metadata: HeaderMap::new(),
+            message,
+        }
+    }
+
+    /// Returns a reference to the metadata.
+    pub fn metadata(&self) -> &HeaderMap {
+        &self.metadata
+    }
+
+    /// Returns a mutable reference to the metadata.
+    pub fn metadata_mut(&mut self) -> &mut HeaderMap {
+        &mut self.metadata
+    }
+
+    /// Decomposes the request into its parts.
+    pub fn into_parts(self) -> Parts<T> {
+        Parts {
+            metadata: self.metadata,
+            body: self.message,
+        }
+    }
+
+    /// Creates a request from its parts.
+    pub fn from_parts(parts: Parts<T>) -> Self {
+        Self {
+            metadata: parts.metadata,
+            message: parts.body,
+        }
+    }
+
+    /// Consumes the request, returning the message.
+    pub fn into_message(self) -> T {
+        self.message
+    }
+
+    /// Returns a reference to the message.
+    pub fn message(&self) -> &T {
+        &self.message
+    }
+}
+
+pub struct StreamingRequest<T>
+where
+    T: Send + Sync,
+{
+    metadata: HeaderMap,
+    message: T,
+}
+
+impl<T> StreamingRequest<T>
 where
     T: Send + Sync,
 {

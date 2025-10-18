@@ -1,6 +1,8 @@
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
 
+#[cfg(feature = "async")]
+use futures_util::Stream;
 #[cfg(feature = "reqwest")]
 pub use reqwest::ReqwestClient;
 
@@ -8,7 +10,11 @@ use crate::Result;
 use crate::codec::Codec;
 use crate::connect::{DecodeMessage, EncodeMessage};
 use crate::error::Error;
+#[cfg(feature = "async")]
+use crate::request::StreamingRequest;
 use crate::request::{self, UnaryRequest};
+#[cfg(feature = "async")]
+use crate::response::ServerStreamingResponse;
 use crate::response::UnaryResponse;
 use bytes::Bytes;
 use http::Uri;
@@ -40,6 +46,19 @@ where
         path: &str,
         req: UnaryRequest<I>,
     ) -> impl Future<Output = Result<UnaryResponse<O>>>;
+}
+
+#[cfg(feature = "async")]
+pub trait AsyncStreamingClient<I, O>: Send + Sync
+where
+    I: Send + Sync,
+    O: Send + Sync,
+{
+    fn call_server_streaming(
+        &self,
+        path: &str,
+        req: StreamingRequest<I>,
+    ) -> impl Future<Output = Result<ServerStreamingResponse<O>>>;
 }
 
 #[cfg(feature = "sync")]
@@ -144,6 +163,24 @@ impl CommonClient {
             .message_codec(self.message_codec)
             .append_metadata(metadata)
             .unary_get(body)
+    }
+
+    pub fn streaming_request<Req>(
+        &self,
+        path: &str,
+        req: StreamingRequest<Req>,
+    ) -> Result<http::Request<Vec<u8>>>
+    where
+        Req: EncodeMessage,
+    {
+        let crate::request::Parts { metadata, body } = req.into_parts();
+        let body = self.message_codec.encode(&body);
+        self.builder
+            .clone()
+            .rpc_path(path)?
+            .message_codec(self.message_codec)
+            .append_metadata(metadata)
+            .streaming(body)
     }
 
     /// Parses a unary response from the given HTTP response.
