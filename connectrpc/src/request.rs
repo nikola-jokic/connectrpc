@@ -290,15 +290,18 @@ impl Builder {
         }
         Ok(req)
     }
-    
+
     /// Build a client streaming request with the given message stream as the body.
     /// POST request will be used.
-    /// 
+    ///
     /// The message_stream should yield encoded messages (Vec<u8>).
     /// This method wraps the stream in Connect protocol frames.
     ///
     /// https://connectrpc.com/docs/protocol#streaming-request
-    pub fn client_streaming<S>(mut self, message_stream: S) -> Result<http::Request<FrameEncoder<S>>>
+    pub fn client_streaming<S>(
+        mut self,
+        message_stream: S,
+    ) -> Result<http::Request<FrameEncoder<S>>>
     where
         S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
     {
@@ -521,7 +524,7 @@ where
             _phantom: std::marker::PhantomData,
         }
     }
-    
+
     pub fn with_metadata(mut self, metadata: HeaderMap) -> Self {
         self.metadata = metadata;
         self

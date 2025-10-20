@@ -12,9 +12,9 @@ use crate::error::Error;
 use crate::request::{self, UnaryRequest};
 #[cfg(feature = "async")]
 use crate::request::{ClientStreamingRequest, ServerStreamingRequest};
+use crate::response::UnaryResponse;
 #[cfg(feature = "async")]
 use crate::response::{ClientStreamingResponse, ServerStreamingResponse};
-use crate::response::UnaryResponse;
 use bytes::Bytes;
 use http::Uri;
 

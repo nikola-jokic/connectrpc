@@ -1,10 +1,10 @@
-use std::pin::Pin;
 use crate::Result;
 use crate::error::{BoxError, Error};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_util::{Stream, StreamExt, TryStream, TryStreamExt, stream};
 use http_body::Body;
 use http_body_util::BodyExt;
+use std::pin::Pin;
 
 #[derive(Debug, Clone)]
 pub struct ConnectFrame {
