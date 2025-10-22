@@ -2,9 +2,9 @@ use crate::connect::DecodeMessage;
 use crate::header::HeaderMap;
 use crate::stream::ConnectFrame;
 use crate::{Codec, Result};
+use core::fmt;
 use futures_util::Stream;
 use futures_util::StreamExt;
-use core::fmt;
 use std::pin::Pin;
 
 /// The parts of a unary response.
@@ -169,6 +169,48 @@ where
                 }
             },
         )
+    }
+}
+
+#[derive(Debug)]
+pub struct ClientStreamingResponse<T>
+where
+    T: Send + Sync,
+{
+    pub status: http::StatusCode,
+    pub metadata: HeaderMap,
+    pub message: T,
+}
+
+impl<T> ClientStreamingResponse<T>
+where
+    T: Send + Sync,
+{
+    /// Returns the http status code of the response.
+    pub fn status(&self) -> http::StatusCode {
+        self.status
+    }
+
+    /// Returns the metadata of the response.
+    pub fn metadata(&self) -> &HeaderMap {
+        &self.metadata
+    }
+
+    pub fn into_message(self) -> T {
+        self.message
+    }
+
+    pub fn into_parts(self) -> Parts<T> {
+        Parts {
+            status: self.status,
+            metadata: self.metadata,
+            message: self.message,
+        }
+    }
+
+    /// Returns a reference to the message of the response.
+    pub fn message(&self) -> &T {
+        &self.message
     }
 }
 

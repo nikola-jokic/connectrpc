@@ -8,6 +8,8 @@ use crate::header::{
     CONTENT_TYPE,
 };
 use crate::metadata::Metadata;
+use crate::stream::FrameEncoder;
+use futures_util::Stream;
 use http::uri::{Authority, Scheme};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri};
 use std::time::Duration;
@@ -269,7 +271,7 @@ impl Builder {
     /// POST request will be used.
     ///
     /// https://connectrpc.com/docs/protocol#streaming-request
-    pub fn streaming(mut self, message: Vec<u8>) -> Result<http::Request<Vec<u8>>> {
+    pub fn server_streaming(mut self, message: Vec<u8>) -> Result<http::Request<Vec<u8>>> {
         self.validate()?;
         let mut req = self.request_base(Method::POST, message)?;
         let headers = req.headers_mut();
@@ -286,6 +288,40 @@ impl Builder {
         for value in std::mem::take(&mut self.accept_encodings) {
             req.headers_mut().append(CONNECT_ACCEPT_ENCODING, value);
         }
+        Ok(req)
+    }
+
+    /// Build a client streaming request with the given message stream as the body.
+    /// POST request will be used.
+    ///
+    /// The message_stream should yield encoded messages (Vec<u8>).
+    /// This method wraps the stream in Connect protocol frames.
+    ///
+    /// https://connectrpc.com/docs/protocol#streaming-request
+    pub fn client_streaming<S>(
+        mut self,
+        message_stream: S,
+    ) -> Result<http::Request<FrameEncoder<S>>>
+    where
+        S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
+    {
+        self.validate()?;
+        let encoder = FrameEncoder::new(message_stream);
+        let mut req = self.request_base(Method::POST, encoder)?;
+        let headers = req.headers_mut();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&format!(
+                "application/connect+{}",
+                self.message_codec.as_ref().unwrap().name()
+            ))?,
+        );
+        headers.insert(CONNECT_CONTENT_ENCODING, self.request_content_encoding());
+        // Streaming-Accept-Encoding → "connect-accept-encoding" Content-Coding [...]
+        for value in std::mem::take(&mut self.accept_encodings) {
+            req.headers_mut().append(CONNECT_ACCEPT_ENCODING, value);
+        }
+
         Ok(req)
     }
 
@@ -408,7 +444,7 @@ where
     }
 }
 
-pub struct StreamingRequest<T>
+pub struct ServerStreamingRequest<T>
 where
     T: Send + Sync,
 {
@@ -416,7 +452,7 @@ where
     message: T,
 }
 
-impl<T> StreamingRequest<T>
+impl<T> ServerStreamingRequest<T>
 where
     T: Send + Sync,
 {
@@ -462,6 +498,73 @@ where
     /// Returns a reference to the message.
     pub fn message(&self) -> &T {
         &self.message
+    }
+}
+
+pub struct ClientStreamingRequest<T, S>
+where
+    T: Send + Sync,
+    S: Stream<Item = T> + Send + Sync,
+{
+    metadata: HeaderMap,
+    message_stream: S,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, S> ClientStreamingRequest<T, S>
+where
+    T: Send + Sync,
+    S: Stream<Item = T> + Send + Sync,
+{
+    /// Create a new client streaming request with the given message stream and empty metadata.
+    pub fn new(message_stream: S) -> Self {
+        Self {
+            metadata: HeaderMap::new(),
+            message_stream,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_metadata(mut self, metadata: HeaderMap) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    /// Returns a reference to the metadata.
+    pub fn metadata(&self) -> &HeaderMap {
+        &self.metadata
+    }
+
+    /// Returns a mutable reference to the metadata.
+    pub fn metadata_mut(&mut self) -> &mut HeaderMap {
+        &mut self.metadata
+    }
+
+    /// Decomposes the request into its parts.
+    pub fn into_parts(self) -> Parts<S> {
+        Parts {
+            metadata: self.metadata,
+            body: self.message_stream,
+        }
+    }
+
+    /// Creates a request from its parts.
+    pub fn from_parts(parts: Parts<S>) -> Self {
+        Self {
+            metadata: parts.metadata,
+            message_stream: parts.body,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Consumes the request, returning the message stream.
+    pub fn into_message_stream(self) -> S {
+        self.message_stream
+    }
+
+    /// Returns a reference to the message stream.
+    pub fn message_stream(&self) -> &S {
+        &self.message_stream
     }
 }
 
