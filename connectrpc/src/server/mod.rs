@@ -149,14 +149,15 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unary_headers_missing_version() {
+    fn test_parse_unary_headers_wrong_version() {
         let srv = CommonServer::new();
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(CONNECT_PROTOCOL_VERSION, "2".parse().unwrap());
         let err = srv.parse_unary_headers(&headers).unwrap_err();
         assert!(
             err.to_string()
-                .contains("missing connect-protocol-version header")
+                .contains("unsupported connect-protocol-version version")
         );
     }
 
