@@ -65,7 +65,7 @@ async fn main() {
         println!("Axum server listening on 127.0.0.1:50051");
         axum::serve(listener, router).await.unwrap();
     });
-    
+
     let mut cmd = tokio::process::Command::new("curl")
         .arg("-X")
         .arg("POST")

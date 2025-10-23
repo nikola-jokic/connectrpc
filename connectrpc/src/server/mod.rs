@@ -28,7 +28,10 @@ impl CommonServer {
     /// the body doesn't need to be read.
     pub fn parse_unary_headers(&self, headers: &HeaderMap) -> Result<Codec> {
         // Do not require version to be specified: https://connectrpc.com/docs/curl-and-other-clients#curl
-        let version = headers.get(CONNECT_PROTOCOL_VERSION).cloned().unwrap_or(CONNECT_PROTOCOL_VERSION_1);
+        let version = headers
+            .get(CONNECT_PROTOCOL_VERSION)
+            .cloned()
+            .unwrap_or(CONNECT_PROTOCOL_VERSION_1);
         if version != CONNECT_PROTOCOL_VERSION_1 {
             return Err(Error::unsupported_media_type(format!(
                 "unsupported connect-protocol-version version: {:?}",
