@@ -6,6 +6,11 @@ use http_body::Body;
 use http_body_util::BodyExt;
 use std::pin::Pin;
 
+/// Type alias for server streaming frame encoder.
+/// This encapsulates the internal implementation and allows for future changes.
+pub type ServerStreamingEncoder =
+    StreamingFrameEncoder<UnpinStream<futures_util::stream::Iter<std::iter::Once<Vec<u8>>>>>;
+
 #[derive(Debug, Clone)]
 pub struct ConnectFrame {
     pub compressed: bool,
@@ -13,8 +18,8 @@ pub struct ConnectFrame {
     pub data: Bytes,
 }
 
-pub const FLAGS_COMPRESSED: u8 = 0b1;
-pub const FLAGS_END: u8 = 0b1;
+pub const FLAGS_COMPRESSED: u8 = 0b1; // bit 0
+pub const FLAGS_END: u8 = 0b10; // bit 1
 
 impl ConnectFrame {
     pub fn body_stream<B>(body: B) -> impl Stream<Item = Result<Self>>
@@ -109,30 +114,13 @@ impl FrameParseState {
 /// - Byte 0: Flags (bit 0 = compressed, bit 1 = end-of-stream)
 /// - Bytes 1-4: Message length (u32 big-endian)
 /// - Bytes 5+: Message data
-pub struct FrameEncoder<S> {
-    message_stream: S,
-    finished: bool,
-}
+pub struct FrameEncoder;
 
-impl<S> FrameEncoder<S>
-where
-    S: Stream<Item = Vec<u8>> + Send + Sync,
-{
-    /// Create a new frame encoder from a message stream.
-    ///
-    /// The stream should yield encoded messages (Vec<u8>).
-    /// Each message will be wrapped in a Connect frame.
-    pub fn new(message_stream: S) -> Self {
-        Self {
-            message_stream,
-            finished: false,
-        }
-    }
-
+impl FrameEncoder {
     /// Encode a single message into a ConnectFrame.
     ///
     /// Returns the frame bytes that can be sent over HTTP.
-    fn encode_message(message_data: Vec<u8>) -> Result<Bytes> {
+    pub fn encode_message(message_data: Vec<u8>) -> Result<Bytes> {
         let message_len = message_data.len() as u32;
 
         // Frame format: [flags(1) | length(4) | data]
@@ -151,7 +139,7 @@ where
     }
 
     /// Encode the final frame (end-of-stream marker).
-    fn encode_end_frame() -> Bytes {
+    pub fn encode_end_frame() -> Bytes {
         let mut frame = BytesMut::with_capacity(5);
 
         // Flags: not compressed, end-of-stream
@@ -164,7 +152,28 @@ where
     }
 }
 
-impl<S> Stream for FrameEncoder<S>
+pub struct StreamingFrameEncoder<S> {
+    message_stream: S,
+    finished: bool,
+}
+
+impl<S> StreamingFrameEncoder<S>
+where
+    S: Stream<Item = Vec<u8>> + Send + Sync,
+{
+    /// Create a new frame encoder from a message stream.
+    ///
+    /// The stream should yield encoded messages (Vec<u8>).
+    /// Each message will be wrapped in a Connect frame.
+    pub fn new(message_stream: S) -> Self {
+        Self {
+            message_stream,
+            finished: false,
+        }
+    }
+}
+
+impl<S> Stream for StreamingFrameEncoder<S>
 where
     S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
 {
@@ -185,7 +194,7 @@ where
         match std::pin::Pin::new(&mut self.message_stream).poll_next(cx) {
             Poll::Ready(Some(message_data)) => {
                 // Encode the message into a frame
-                match Self::encode_message(message_data) {
+                match FrameEncoder::encode_message(message_data) {
                     Ok(frame) => Poll::Ready(Some(Ok(frame))),
                     Err(err) => Poll::Ready(Some(Err(err))),
                 }
@@ -193,7 +202,7 @@ where
             Poll::Ready(None) => {
                 // Stream ended, send the end-of-stream frame
                 self.finished = true;
-                Poll::Ready(Some(Ok(Self::encode_end_frame())))
+                Poll::Ready(Some(Ok(FrameEncoder::encode_end_frame())))
             }
             Poll::Pending => Poll::Pending,
         }
@@ -201,7 +210,7 @@ where
 }
 
 // Wrapper to make non-Unpin streams compatible with FrameEncoder
-pub(crate) struct UnpinStream<S: Stream>(pub(crate) Pin<Box<S>>);
+pub struct UnpinStream<S: Stream>(pub(crate) Pin<Box<S>>);
 
 impl<S: Stream> Unpin for UnpinStream<S> {}
 
@@ -226,7 +235,7 @@ mod tests {
 
         let messages = vec![vec![1, 2, 3, 4, 5]];
         let message_stream = stream::iter(messages);
-        let mut encoder = FrameEncoder::new(message_stream);
+        let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // First frame: the message
         let frame1 = encoder.next().await.unwrap().unwrap();
@@ -255,7 +264,7 @@ mod tests {
 
         let messages = vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9]];
         let message_stream = stream::iter(messages);
-        let mut encoder = FrameEncoder::new(message_stream);
+        let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // Frame 1: first message (3 bytes)
         let frame1 = encoder.next().await.unwrap().unwrap();
@@ -298,7 +307,7 @@ mod tests {
 
         let messages: Vec<Vec<u8>> = vec![];
         let message_stream = stream::iter(messages);
-        let mut encoder = FrameEncoder::new(message_stream);
+        let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // Only frame: end-of-stream
         let frame = encoder.next().await.unwrap().unwrap();
@@ -310,5 +319,28 @@ mod tests {
 
         // Stream should end
         assert!(encoder.next().await.is_none());
+    }
+}
+
+/// A utility for decoding Connect frames from a stream of bytes.
+///
+/// This provides a convenient way to parse frames for testing and validation.
+pub struct StreamDecoder;
+
+impl StreamDecoder {
+    /// Decode frames from a stream that yields `Result<Bytes>`.
+    ///
+    /// This is particularly useful for testing frame encoders, as it can
+    /// directly consume the output of `StreamingFrameEncoder` and parse
+    /// it back into `ConnectFrame` objects.
+    pub fn decode_frames<S>(stream: S) -> impl Stream<Item = Result<ConnectFrame>>
+    where
+        S: Stream<Item = Result<Bytes>>,
+    {
+        // Convert the Result<Bytes> stream to the format expected by ConnectFrame::bytes_stream
+        let byte_stream =
+            stream.map(|result: Result<Bytes>| result.map_err(|e| Box::new(e) as BoxError));
+
+        ConnectFrame::bytes_stream(byte_stream)
     }
 }

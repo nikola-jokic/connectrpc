@@ -15,6 +15,7 @@ use crate::request::{BidiStreamingRequest, ClientStreamingRequest, ServerStreami
 use crate::response::UnaryResponse;
 #[cfg(feature = "async")]
 use crate::response::{BidiStreamingResponse, ClientStreamingResponse, ServerStreamingResponse};
+use crate::stream::ServerStreamingEncoder;
 use bytes::Bytes;
 use http::Uri;
 
@@ -184,7 +185,7 @@ impl CommonClient {
         &self,
         path: &str,
         req: ServerStreamingRequest<Req>,
-    ) -> Result<http::Request<Vec<u8>>>
+    ) -> Result<http::Request<ServerStreamingEncoder>>
     where
         Req: EncodeMessage,
     {

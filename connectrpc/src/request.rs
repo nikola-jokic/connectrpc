@@ -8,8 +8,11 @@ use crate::header::{
     CONTENT_TYPE,
 };
 use crate::metadata::Metadata;
-use crate::stream::FrameEncoder;
+use crate::stream::ServerStreamingEncoder;
+use crate::stream::StreamingFrameEncoder;
+use crate::stream::UnpinStream;
 use futures_util::Stream;
+use futures_util::stream;
 use http::uri::{Authority, Scheme};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri};
 use std::time::Duration;
@@ -271,9 +274,14 @@ impl Builder {
     /// POST request will be used.
     ///
     /// https://connectrpc.com/docs/protocol#streaming-request
-    pub fn server_streaming(mut self, message: Vec<u8>) -> Result<http::Request<Vec<u8>>> {
+    pub fn server_streaming(
+        mut self,
+        message: Vec<u8>,
+    ) -> Result<http::Request<ServerStreamingEncoder>> {
         self.validate()?;
-        let mut req = self.request_base(Method::POST, message)?;
+        let stream = UnpinStream(Box::pin(stream::iter(std::iter::once(message))));
+        let encoder = StreamingFrameEncoder::new(stream);
+        let mut req = self.request_base(Method::POST, encoder)?;
         let headers = req.headers_mut();
         headers.insert(
             CONTENT_TYPE,
@@ -301,12 +309,12 @@ impl Builder {
     pub fn client_streaming<S>(
         mut self,
         message_stream: S,
-    ) -> Result<http::Request<FrameEncoder<S>>>
+    ) -> Result<http::Request<StreamingFrameEncoder<S>>>
     where
         S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
     {
         self.validate()?;
-        let encoder = FrameEncoder::new(message_stream);
+        let encoder = StreamingFrameEncoder::new(message_stream);
         let mut req = self.request_base(Method::POST, encoder)?;
         let headers = req.headers_mut();
         headers.insert(
@@ -333,12 +341,15 @@ impl Builder {
     /// The response will also be a stream of frames that can be decoded.
     ///
     /// https://connectrpc.com/docs/protocol#streaming-request
-    pub fn bidi_streaming<S>(mut self, message_stream: S) -> Result<http::Request<FrameEncoder<S>>>
+    pub fn bidi_streaming<S>(
+        mut self,
+        message_stream: S,
+    ) -> Result<http::Request<StreamingFrameEncoder<S>>>
     where
         S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
     {
         self.validate()?;
-        let encoder = FrameEncoder::new(message_stream);
+        let encoder = StreamingFrameEncoder::new(message_stream);
         let mut req = self.request_base(Method::POST, encoder)?;
         let headers = req.headers_mut();
         headers.insert(
@@ -748,6 +759,88 @@ mod tests {
             assert_eq!(query_map.get("base64").unwrap(), "1");
             assert_eq!(query_map.get("connect").unwrap(), "v1");
             assert_eq!(query_map.get("encoding").unwrap(), codec.name());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_builder_server_streaming_frames() {
+        use crate::stream::{ConnectFrame, StreamDecoder};
+        use futures_util::StreamExt;
+
+        // Test that server streaming creates exactly 2 frames:
+        // 1. Message frame containing the request
+        // 2. End-of-stream frame
+        for codec in [Codec::Proto, Codec::Json] {
+            let request = HelloRequest {
+                name: "world".to_string(),
+            };
+            let body = codec.encode(&request);
+
+            let req = Builder::new()
+                .scheme(Scheme::HTTPS)
+                .authority("example.com")
+                .unwrap()
+                .rpc_path("/helloworld.Greeter/SayHello")
+                .unwrap()
+                .message_codec(codec)
+                .server_streaming(body.clone())
+                .unwrap();
+
+            // Basic request validation
+            assert_eq!(req.method(), Method::POST);
+            assert_eq!(
+                req.uri(),
+                &"https://example.com/helloworld.Greeter/SayHello"
+            );
+            assert_eq!(
+                req.headers().get(CONTENT_TYPE).unwrap(),
+                &format!("application/connect+{}", codec.name())
+            );
+
+            // Extract the streaming body and decode frames using StreamDecoder
+            let stream_encoder = req.into_body();
+            let frame_stream = StreamDecoder::decode_frames(stream_encoder);
+
+            // Collect all decoded frames from the stream
+            let frames: Vec<ConnectFrame> = frame_stream
+                .map(|result| result.expect("Frame should be valid"))
+                .collect()
+                .await;
+
+            // Should have exactly 2 frames: message frame + end frame
+            assert_eq!(
+                frames.len(),
+                2,
+                "Expected exactly 2 frames for codec {}",
+                codec.name()
+            );
+
+            // Validate first frame (message frame)
+            let message_frame = &frames[0];
+            assert!(
+                !message_frame.compressed,
+                "Message frame should not be compressed"
+            );
+            assert!(
+                !message_frame.end,
+                "Message frame should not be end-of-stream"
+            );
+            assert_eq!(
+                message_frame.data.len(),
+                body.len(),
+                "Message data length should match encoded body length"
+            );
+            assert_eq!(
+                &message_frame.data[..],
+                &body[..],
+                "Message data should match original"
+            );
+
+            // Validate second frame (end frame)
+            let end_frame = &frames[1];
+            assert!(!end_frame.compressed, "End frame should not be compressed");
+            assert!(end_frame.end, "End frame should be end-of-stream");
+            assert_eq!(end_frame.data.len(), 0, "End frame should have no data");
         }
     }
 }
