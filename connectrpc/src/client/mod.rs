@@ -11,10 +11,10 @@ use crate::connect::{DecodeMessage, EncodeMessage};
 use crate::error::Error;
 use crate::request::{self, UnaryRequest};
 #[cfg(feature = "async")]
-use crate::request::{ClientStreamingRequest, ServerStreamingRequest};
+use crate::request::{BidiStreamingRequest, ClientStreamingRequest, ServerStreamingRequest};
 use crate::response::UnaryResponse;
 #[cfg(feature = "async")]
-use crate::response::{ClientStreamingResponse, ServerStreamingResponse};
+use crate::response::{BidiStreamingResponse, ClientStreamingResponse, ServerStreamingResponse};
 use bytes::Bytes;
 use http::Uri;
 
@@ -65,8 +65,15 @@ where
         req: ClientStreamingRequest<I, S>,
     ) -> impl Future<Output = Result<ClientStreamingResponse<O>>>
     where
-        S: Stream<Item = I> + Send + Sync + 'static,
-        I: 'static;
+        S: Stream<Item = I> + Send + Sync + 'static;
+
+    fn call_bidi_streaming<SReq>(
+        &self,
+        path: &str,
+        req: BidiStreamingRequest<I, SReq>,
+    ) -> impl Future<Output = Result<BidiStreamingResponse<O>>>
+    where
+        SReq: Stream<Item = I> + Send + Sync + 'static;
 }
 
 #[cfg(feature = "sync")]

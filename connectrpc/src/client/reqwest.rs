@@ -3,8 +3,13 @@ use crate::Result;
 use crate::client::AsyncStreamingClient;
 use crate::codec::Codec;
 use crate::connect::{DecodeMessage, EncodeMessage};
-use crate::request::{self, ClientStreamingRequest, ServerStreamingRequest, UnaryRequest};
-use crate::response::{ClientStreamingResponse, ServerStreamingResponse, UnaryResponse};
+use crate::error::Error;
+use crate::request::{
+    self, BidiStreamingRequest, ClientStreamingRequest, ServerStreamingRequest, UnaryRequest,
+};
+use crate::response::{
+    BidiStreamingResponse, ClientStreamingResponse, ServerStreamingResponse, UnaryResponse,
+};
 use crate::stream::{ConnectFrame, UnpinStream};
 use bytes::Bytes;
 use futures_util::Stream;
@@ -83,7 +88,7 @@ where
                 status: http::StatusCode::OK,
                 codec: self.common.message_codec,
                 metadata: http::HeaderMap::new(),
-                message_stream: std::boxed::Box::pin(frames),
+                message_stream: Box::pin(frames),
                 _marker: std::marker::PhantomData,
             })
         } else {
@@ -98,7 +103,6 @@ where
     ) -> Result<ClientStreamingResponse<O>>
     where
         S: Stream<Item = I> + Send + Sync + 'static,
-        I: 'static,
     {
         use reqwest::Body;
 
@@ -165,6 +169,89 @@ where
                 status,
                 metadata: headers,
                 message,
+            })
+        } else {
+            todo!("Handle error response status: {}", response.status())
+        }
+    }
+
+    async fn call_bidi_streaming<SReq>(
+        &self,
+        path: &str,
+        req: BidiStreamingRequest<I, SReq>,
+    ) -> Result<BidiStreamingResponse<O>>
+    where
+        SReq: Stream<Item = I> + Send + Sync + 'static,
+    {
+        use reqwest::Body;
+
+        let crate::request::Parts {
+            metadata,
+            body: message_stream,
+        } = req.into_parts();
+
+        // Build the base request using the builder
+        let builder = self
+            .common
+            .builder
+            .clone()
+            .rpc_path(path)?
+            .message_codec(self.common.message_codec)
+            .append_metadata(metadata);
+
+        // Encode each message
+        let codec = self.common.message_codec;
+        let encoded_stream = message_stream.map(move |msg| codec.encode(&msg));
+
+        // Wrap in UnpinStream for Unpin compatibility
+        let unpin_stream = UnpinStream(Box::pin(encoded_stream));
+
+        // Create the HTTP request with frame encoding
+        let http_req = builder.bidi_streaming(unpin_stream)?;
+        let timeout = request::get_timeout(&http_req);
+
+        // Split the request to get parts and body separately
+        let (parts, frame_encoder) = http_req.into_parts();
+
+        // Construct reqwest request manually
+        let mut req_builder = self.client.request(parts.method, parts.uri.to_string());
+
+        // Add headers
+        for (name, value) in &parts.headers {
+            req_builder = req_builder.header(name.clone(), value.clone());
+        }
+
+        // Wrap frame encoder stream directly in reqwest Body (true streaming!)
+        let body = Body::wrap_stream(frame_encoder);
+        req_builder = req_builder.body(body);
+
+        // Set timeout
+        if let Some(timeout) = timeout {
+            req_builder = req_builder.timeout(timeout);
+        }
+
+        // Spawn the request in a background task to allow concurrent request/response streaming
+        let response_task = tokio::spawn(async move { req_builder.send().await });
+
+        // Wait for the response to start coming in
+        let response = response_task
+            .await
+            .map_err(|e| Error::internal(format!("request task failed: {}", e)))?
+            .map_err(|e| Error::internal(format!("request failed: {}", e)))?;
+
+        // Check response status
+        if response.status().is_success() {
+            let status = response.status();
+            let headers = response.headers().clone();
+            let stream = response.bytes_stream();
+            let frames = ConnectFrame::bytes_stream(stream);
+
+            Ok(BidiStreamingResponse {
+                status,
+                codec: self.common.message_codec,
+                metadata: headers,
+                message_stream: Box::pin(frames),
+                _marker: std::marker::PhantomData,
             })
         } else {
             todo!("Handle error response status: {}", response.status())

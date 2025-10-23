@@ -172,6 +172,67 @@ where
     }
 }
 
+pub struct BidiStreamingResponse<T>
+where
+    T: Send + Sync,
+{
+    pub status: http::StatusCode,
+    pub metadata: HeaderMap,
+    pub codec: Codec,
+    pub message_stream: Pin<Box<dyn Stream<Item = Result<ConnectFrame>> + Send + Sync>>,
+    pub _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> BidiStreamingResponse<T>
+where
+    T: Send + Sync,
+{
+    /// Returns the http status code of the response.
+    pub fn status(&self) -> http::StatusCode {
+        self.status
+    }
+
+    /// Returns the metadata of the response.
+    pub fn metadata(&self) -> &HeaderMap {
+        &self.metadata
+    }
+}
+
+impl<T> BidiStreamingResponse<T>
+where
+    T: DecodeMessage + Send + 'static,
+{
+    /// Consumes the response and returns a stream of decoded messages.
+    /// Each item in the stream is a `Result<T>` where `T` is the decoded message type.
+    /// The stream automatically deserializes ConnectFrames using the configured codec.
+    pub fn into_message_stream(self) -> impl Stream<Item = Result<T>> + Send {
+        futures_util::stream::unfold(
+            (self.message_stream, self.codec),
+            |(mut frame_stream, codec)| async move {
+                loop {
+                    match frame_stream.next().await {
+                        Some(Ok(frame)) => {
+                            // Skip empty frames
+                            if !frame.data.is_empty() {
+                                // Decode the frame data into a message
+                                let result = codec.decode::<T>(&frame.data);
+                                return Some((result, (frame_stream, codec)));
+                            }
+                            // Continue to next frame if this one is empty
+                        }
+                        Some(Err(e)) => {
+                            return Some((Err(e), (frame_stream, codec)));
+                        }
+                        None => {
+                            return None;
+                        }
+                    }
+                }
+            },
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct ClientStreamingResponse<T>
 where
