@@ -31,3 +31,15 @@ jobs:
       - name: Test doc
         run: cargo test --locked --all-features --doc
 
+  examples:
+    runs-on: ubuntu-latest
+    name: ubuntu / examples
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@5d458579430fc14a04a08a1e7d3694f545e91ce6
+        with:
+          toolchain: stable
+      - name: Test axum-server-unary example
+        working-directory: ./examples/axum-server-unary
+        run: cargo test --locked --all-features --verbose

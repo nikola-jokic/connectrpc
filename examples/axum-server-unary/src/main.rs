@@ -1,4 +1,4 @@
-use axum_server::{HelloRequest, HelloResponse};
+use axum_server_unary::{HelloRequest, HelloResponse};
 use connectrpc::{Error, Result, UnaryRequest, UnaryResponse};
 use std::{
     collections::BTreeMap,
@@ -46,7 +46,7 @@ async fn main() {
     //
     //   2. It issues a compile-time error when you re-generate the code and forget to
     //   implement a new method.
-    let router = axum_server::HelloWorldServiceAxumServer {
+    let router = axum_server_unary::HelloWorldServiceAxumServer {
         // The server uses fields to store state and handlers
         // Store the state directly in the server struct
         state: State {
@@ -61,5 +61,23 @@ async fn main() {
         .await
         .unwrap();
 
-    axum::serve(listener, router).await.unwrap();
+    let sh = tokio::spawn(async move {
+        println!("Axum server listening on 127.0.0.1:50051");
+        axum::serve(listener, router).await.unwrap();
+    });
+    
+    let mut cmd = tokio::process::Command::new("curl")
+        .arg("-X")
+        .arg("POST")
+        .arg("--header")
+        .arg("Content-Type: application/json")
+        .arg("-d")
+        .arg("{\"name\":\"World\"}")
+        .arg("http://127.0.0.1:50051/hello.HelloWorldService/SayHello")
+        .spawn()
+        .expect("Failed to start curl");
+
+    assert!(cmd.wait().await.expect("Failed to wait on curl").success());
+
+    sh.abort();
 }

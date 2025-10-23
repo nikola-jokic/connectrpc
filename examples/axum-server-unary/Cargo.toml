@@ -1,5 +1,5 @@
 [package]
-name = "axum-server"
+name = "axum-server-unary"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -12,7 +12,7 @@ serde = { version = "1", features = ["derive"] }
 connectrpc = { path = "../../connectrpc", features = ["axum"] }
 axum = { version = "0.8" }
 prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", features = ["full"] }
 
 [build-dependencies]
 connectrpc-build = { path = "../../connectrpc-build" }
