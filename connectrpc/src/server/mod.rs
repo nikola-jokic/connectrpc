@@ -27,12 +27,15 @@ impl CommonServer {
     /// This parses only headers so if the request is not valid,
     /// the body doesn't need to be read.
     pub fn parse_unary_headers(&self, headers: &HeaderMap) -> Result<Codec> {
-        let connect_version = headers.get(CONNECT_PROTOCOL_VERSION).ok_or_else(|| {
-            Error::invalid_request(format!("missing {CONNECT_PROTOCOL_VERSION} header"))
-        })?;
-        if connect_version != CONNECT_PROTOCOL_VERSION_1 {
-            return Err(Error::invalid_request(format!(
-                "unsupported {CONNECT_PROTOCOL_VERSION} version: {connect_version:?}"
+        // Do not require version to be specified: https://connectrpc.com/docs/curl-and-other-clients#curl
+        let version = headers
+            .get(CONNECT_PROTOCOL_VERSION)
+            .cloned()
+            .unwrap_or(CONNECT_PROTOCOL_VERSION_1);
+        if version != CONNECT_PROTOCOL_VERSION_1 {
+            return Err(Error::unsupported_media_type(format!(
+                "unsupported connect-protocol-version version: {:?}",
+                version
             )));
         }
 
@@ -146,14 +149,15 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unary_headers_missing_version() {
+    fn test_parse_unary_headers_wrong_version() {
         let srv = CommonServer::new();
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(CONNECT_PROTOCOL_VERSION, "2".parse().unwrap());
         let err = srv.parse_unary_headers(&headers).unwrap_err();
         assert!(
             err.to_string()
-                .contains("missing connect-protocol-version header")
+                .contains("unsupported connect-protocol-version version")
         );
     }
 

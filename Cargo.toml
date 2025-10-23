@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "connectrpc" , "connectrpc-build", "examples/axum-server", "examples/reqwest-client"]
+members = [ "connectrpc" , "connectrpc-build", "examples/axum-server-unary", "examples/reqwest-client"]
 
 [workspace.package]
 edition = "2024"
