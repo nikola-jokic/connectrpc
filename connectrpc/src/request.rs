@@ -325,6 +325,38 @@ impl Builder {
         Ok(req)
     }
 
+    /// Build a bidirectional streaming request with the given message stream as the body.
+    /// POST request will be used.
+    ///
+    /// The message_stream should yield encoded messages (Vec<u8>).
+    /// This method wraps the stream in Connect protocol frames.
+    /// The response will also be a stream of frames that can be decoded.
+    ///
+    /// https://connectrpc.com/docs/protocol#streaming-request
+    pub fn bidi_streaming<S>(mut self, message_stream: S) -> Result<http::Request<FrameEncoder<S>>>
+    where
+        S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
+    {
+        self.validate()?;
+        let encoder = FrameEncoder::new(message_stream);
+        let mut req = self.request_base(Method::POST, encoder)?;
+        let headers = req.headers_mut();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_str(&format!(
+                "application/connect+{}",
+                self.message_codec.as_ref().unwrap().name()
+            ))?,
+        );
+        headers.insert(CONNECT_CONTENT_ENCODING, self.request_content_encoding());
+        // Streaming-Accept-Encoding → "connect-accept-encoding" Content-Coding [...]
+        for value in std::mem::take(&mut self.accept_encodings) {
+            req.headers_mut().append(CONNECT_ACCEPT_ENCODING, value);
+        }
+
+        Ok(req)
+    }
+
     /// Validate that all required fields are set.
     ///
     /// This method will be called automatically by the build methods.
@@ -512,6 +544,73 @@ where
 }
 
 impl<T, S> ClientStreamingRequest<T, S>
+where
+    T: Send + Sync,
+    S: Stream<Item = T> + Send + Sync,
+{
+    /// Create a new client streaming request with the given message stream and empty metadata.
+    pub fn new(message_stream: S) -> Self {
+        Self {
+            metadata: HeaderMap::new(),
+            message_stream,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_metadata(mut self, metadata: HeaderMap) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    /// Returns a reference to the metadata.
+    pub fn metadata(&self) -> &HeaderMap {
+        &self.metadata
+    }
+
+    /// Returns a mutable reference to the metadata.
+    pub fn metadata_mut(&mut self) -> &mut HeaderMap {
+        &mut self.metadata
+    }
+
+    /// Decomposes the request into its parts.
+    pub fn into_parts(self) -> Parts<S> {
+        Parts {
+            metadata: self.metadata,
+            body: self.message_stream,
+        }
+    }
+
+    /// Creates a request from its parts.
+    pub fn from_parts(parts: Parts<S>) -> Self {
+        Self {
+            metadata: parts.metadata,
+            message_stream: parts.body,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Consumes the request, returning the message stream.
+    pub fn into_message_stream(self) -> S {
+        self.message_stream
+    }
+
+    /// Returns a reference to the message stream.
+    pub fn message_stream(&self) -> &S {
+        &self.message_stream
+    }
+}
+
+pub struct BidiStreamingRequest<T, S>
+where
+    T: Send + Sync,
+    S: Stream<Item = T> + Send + Sync,
+{
+    metadata: HeaderMap,
+    message_stream: S,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, S> BidiStreamingRequest<T, S>
 where
     T: Send + Sync,
     S: Stream<Item = T> + Send + Sync,
