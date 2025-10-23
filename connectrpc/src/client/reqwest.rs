@@ -76,10 +76,31 @@ where
         path: &str,
         req: ServerStreamingRequest<I>,
     ) -> Result<ServerStreamingResponse<O>> {
-        let req = self.common.streaming_request(path, req)?;
-        let timeout = request::get_timeout(&req);
-        let mut req: reqwest::Request = req.try_into()?;
-        *req.timeout_mut() = timeout;
+        use reqwest::Body;
+
+        let http_req = self.common.streaming_request(path, req)?;
+        let timeout = request::get_timeout(&http_req);
+
+        // Split the request to get parts and body separately
+        let (parts, frame_encoder) = http_req.into_parts();
+
+        // Construct reqwest request manually
+        let mut req_builder = self.client.request(parts.method, parts.uri.to_string());
+
+        // Add headers
+        for (name, value) in &parts.headers {
+            req_builder = req_builder.header(name.clone(), value.clone());
+        }
+
+        // Wrap frame encoder stream in reqwest Body
+        let body = Body::wrap_stream(frame_encoder);
+        req_builder = req_builder.body(body);
+
+        // Set timeout and execute
+        let mut req = req_builder.build()?;
+        if let Some(timeout) = timeout {
+            *req.timeout_mut() = Some(timeout);
+        }
         let response = self.client.execute(req).await?;
         if response.status().is_success() {
             let stream = response.bytes_stream();
