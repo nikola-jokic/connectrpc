@@ -1,16 +1,20 @@
-use crate::Result;
 use crate::error::Error;
-use crate::header::{CONTENT_TYPE, HeaderValue};
-use crate::request::RequestResponseOptions;
+use crate::header::{CONNECT_ACCEPT_ENCODING, CONNECT_CONTENT_ENCODING, CONTENT_TYPE, HeaderValue};
 use crate::request::UnaryRequest;
-use crate::response::UnaryResponse;
+use crate::request::{ClientStreamingRequest, RequestResponseOptions};
+use crate::response::{ClientStreamingResponse, UnaryResponse};
 use crate::server::CommonServer;
+use crate::stream::{ConnectFrame, StreamingFrameDecoder};
+use crate::{Codec, Result};
 use axum::body::{self, Body};
 use axum::http::{Method, Request};
 use axum::response::Response;
+use futures_util::Stream;
 use prost::Message;
 use serde::{Serialize, de::DeserializeOwned};
 use std::pin::Pin;
+
+type ClientMessageStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + Send + 'static>>;
 
 /// A trait for handling unary RPC requests in an Axum application.
 ///
@@ -44,7 +48,7 @@ where
 
     fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future {
         Box::pin(async move {
-            let (req, option) = match parse_request(req, srv).await {
+            let (req, option) = match parse_unary_request(req, srv).await {
                 Ok(r) => r,
                 Err(e) => return Response::from(e),
             };
@@ -86,6 +90,42 @@ where
     }
 }
 
+pub trait RpcClientStreamingHandler<TMReq, TMRes, TState>:
+    Clone + Send + Sync + Sized + 'static
+{
+    type Future: Future<Output = Response> + Send + 'static;
+
+    fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future;
+}
+
+impl<TMReq, TMRes, TFnFut, TFn, TState> RpcClientStreamingHandler<TMReq, TMRes, TState> for TFn
+where
+    TMReq: Message + DeserializeOwned + Default + Send + 'static,
+    TMRes: Message + Serialize + Send + 'static,
+    TFnFut: Future<Output = Result<ClientStreamingResponse<TMRes>>> + Send + 'static,
+    TFn: FnOnce(TState, ClientStreamingRequest<TMReq, ClientMessageStream<TMReq>>) -> TFnFut
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    TState: Send + Sync + 'static,
+{
+    type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
+
+    fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future {
+        Box::pin(async move {
+            let (req, option) = match parse_client_streaming_request::<TMReq>(req, srv).await {
+                Ok(r) => r,
+                Err(e) => return Response::from(e),
+            };
+
+            let _ = (&req, &option, &state);
+
+            todo!()
+        })
+    }
+}
+
 impl From<Error> for Response {
     fn from(err: Error) -> Self {
         let http_response: http::Response<Vec<u8>> = err.into();
@@ -94,7 +134,7 @@ impl From<Error> for Response {
 }
 
 // impl TryFrom<Request<Body>> for UnaryRequest<Vec<u8>> {}
-async fn parse_request<TMReq>(
+async fn parse_unary_request<TMReq>(
     req: Request<Body>,
     srv: CommonServer,
 ) -> Result<(UnaryRequest<TMReq>, RequestResponseOptions)>
@@ -170,6 +210,96 @@ where
         RequestResponseOptions {
             message_codec: codec,
             accept_encodings: vec![],
+        },
+    ))
+}
+
+async fn parse_client_streaming_request<TMReq>(
+    req: Request<Body>,
+    _srv: CommonServer,
+) -> Result<(
+    ClientStreamingRequest<TMReq, ClientMessageStream<TMReq>>,
+    RequestResponseOptions,
+)>
+where
+    TMReq: Message + DeserializeOwned + Default + Send + 'static,
+{
+    let (parts, body) = req.into_parts();
+    let http::request::Parts {
+        method, headers, ..
+    } = parts;
+    if method != Method::POST {
+        return Err(Error::invalid_request(format!(
+            "unsupported HTTP method: {method}"
+        )));
+    }
+
+    let codec = match headers
+        .get(CONTENT_TYPE)
+        .ok_or_else(|| Error::invalid_request("no Content-Type specified"))?
+        .clone()
+        .to_str()
+        .map_err(|e| Error::invalid_request(format!("invalid Content-Type header value: {}", e)))?
+    {
+        "application/connect+proto" => Codec::Proto,
+        "application/connect+json" => Codec::Json,
+        other => {
+            return Err(Error::invalid_request(format!(
+                "unsupported Content-Type: {}",
+                other
+            )));
+        }
+    };
+
+    let content_encoding = headers
+        .get(CONNECT_CONTENT_ENCODING)
+        .map(|hv| {
+            hv.to_str().map_err(|e| {
+                Error::invalid_request(format!(
+                    "invalid Connect-Content-Encoding header value: {}",
+                    e
+                ))
+            })
+        })
+        .transpose()?;
+
+    if let Some(encoding) = content_encoding {
+        if encoding != "identity" {
+            return Err(Error::invalid_request(format!(
+                "unsupported Connect-Content-Encoding: {}",
+                encoding
+            )));
+        }
+    }
+
+    let accept_encodings = headers
+        .get_all(CONNECT_ACCEPT_ENCODING)
+        .iter()
+        .map(|value| {
+            value.to_str().map(|s| s.to_string()).map_err(|e| {
+                Error::invalid_request(format!(
+                    "invalid Connect-Accept-Encoding header value: {}",
+                    e
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let frame_stream = ConnectFrame::body_stream(body.into_data_stream());
+    let decoded_stream = StreamingFrameDecoder::new(frame_stream, codec);
+    let message_stream: ClientMessageStream<TMReq> = Box::pin(decoded_stream);
+
+    let req = ClientStreamingRequest {
+        metadata: headers,
+        message_stream,
+        _phantom: std::marker::PhantomData,
+    };
+
+    Ok((
+        req,
+        RequestResponseOptions {
+            message_codec: codec,
+            accept_encodings,
         },
     ))
 }

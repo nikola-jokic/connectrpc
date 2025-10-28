@@ -66,7 +66,7 @@ where
         req: ClientStreamingRequest<I, S>,
     ) -> impl Future<Output = Result<ClientStreamingResponse<O>>>
     where
-        S: Stream<Item = I> + Send + Sync + 'static;
+        S: Stream<Item = Result<I>> + Send + 'static;
 
     fn call_bidi_streaming<SReq>(
         &self,
@@ -74,7 +74,7 @@ where
         req: BidiStreamingRequest<I, SReq>,
     ) -> impl Future<Output = Result<BidiStreamingResponse<O>>>
     where
-        SReq: Stream<Item = I> + Send + Sync + 'static;
+        SReq: Stream<Item = Result<I>> + Send + 'static;
 }
 
 #[cfg(feature = "sync")]

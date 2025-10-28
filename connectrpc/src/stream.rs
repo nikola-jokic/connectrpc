@@ -1,15 +1,18 @@
-use crate::Result;
+use crate::connect::DecodeMessage;
 use crate::error::{BoxError, Error};
+use crate::{Codec, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures_util::{Stream, StreamExt, TryStream, TryStreamExt, stream};
 use http_body::Body;
 use http_body_util::BodyExt;
 use std::pin::Pin;
+use std::task::Poll;
 
 /// Type alias for server streaming frame encoder.
 /// This encapsulates the internal implementation and allows for future changes.
-pub type ServerStreamingEncoder =
-    StreamingFrameEncoder<UnpinStream<futures_util::stream::Iter<std::iter::Once<Vec<u8>>>>>;
+pub type ServerStreamingEncoder = StreamingFrameEncoder<
+    UnpinStream<futures_util::stream::Iter<std::iter::Once<Result<Vec<u8>>>>>,
+>;
 
 #[derive(Debug, Clone)]
 pub struct ConnectFrame {
@@ -159,7 +162,7 @@ pub struct StreamingFrameEncoder<S> {
 
 impl<S> StreamingFrameEncoder<S>
 where
-    S: Stream<Item = Vec<u8>> + Send + Sync,
+    S: Stream<Item = Result<Vec<u8>>> + Send,
 {
     /// Create a new frame encoder from a message stream.
     ///
@@ -175,29 +178,31 @@ where
 
 impl<S> Stream for StreamingFrameEncoder<S>
 where
-    S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
+    S: Stream<Item = Result<Vec<u8>>> + Send + Unpin,
 {
     type Item = Result<Bytes>;
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll;
-
+    ) -> Poll<Option<Self::Item>> {
         // If we've already sent the end frame, we're done
         if self.finished {
             return Poll::Ready(None);
         }
 
         // Poll the inner message stream
-        match std::pin::Pin::new(&mut self.message_stream).poll_next(cx) {
-            Poll::Ready(Some(message_data)) => {
+        match Pin::new(&mut self.message_stream).poll_next(cx) {
+            Poll::Ready(Some(Ok(message_data))) => {
                 // Encode the message into a frame
                 match FrameEncoder::encode_message(message_data) {
                     Ok(frame) => Poll::Ready(Some(Ok(frame))),
                     Err(err) => Poll::Ready(Some(Err(err))),
                 }
+            }
+            Poll::Ready(Some(Err(err))) => {
+                self.finished = true;
+                Poll::Ready(Some(Err(err)))
             }
             Poll::Ready(None) => {
                 // Stream ended, send the end-of-stream frame
@@ -220,21 +225,124 @@ impl<S: Stream> Stream for UnpinStream<S> {
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    ) -> Poll<Option<Self::Item>> {
         self.0.as_mut().poll_next(cx)
+    }
+}
+
+/// A utility for decoding Connect frames from a stream of bytes.
+///
+/// This provides a convenient way to parse frames for testing and validation.
+pub struct StreamDecoder;
+
+impl StreamDecoder {
+    /// Decode frames from a stream that yields `Result<Bytes>`.
+    ///
+    /// This is particularly useful for testing frame encoders, as it can
+    /// directly consume the output of `StreamingFrameEncoder` and parse
+    /// it back into `ConnectFrame` objects.
+    pub fn decode_frames<S>(stream: S) -> impl Stream<Item = Result<ConnectFrame>>
+    where
+        S: Stream<Item = Result<Bytes>>,
+    {
+        // Convert the Result<Bytes> stream to the format expected by ConnectFrame::bytes_stream
+        let byte_stream =
+            stream.map(|result: Result<Bytes>| result.map_err(|e| Box::new(e) as BoxError));
+
+        ConnectFrame::bytes_stream(byte_stream)
+    }
+}
+
+pub struct StreamingFrameDecoder<S, O> {
+    message_stream: S,
+    finished: bool,
+    codec: Codec,
+    _marker: std::marker::PhantomData<O>,
+}
+
+impl<S, O> Unpin for StreamingFrameDecoder<S, O> where S: Unpin {}
+
+impl<S, O> StreamingFrameDecoder<S, O>
+where
+    S: Stream<Item = Result<ConnectFrame>> + Send,
+    O: DecodeMessage,
+{
+    /// Create a new frame decoder from a ConnectFrame stream.
+    ///
+    /// The stream should yield ConnectFrame objects.
+    /// Each message will be extracted from the frames.
+    pub fn new(message_stream: S, codec: Codec) -> Self {
+        Self {
+            message_stream,
+            finished: false,
+            codec: codec,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, O> Stream for StreamingFrameDecoder<S, O>
+where
+    S: Stream<Item = Result<ConnectFrame>> + Send + Unpin,
+    O: DecodeMessage + 'static,
+{
+    type Item = Result<O>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+
+        // If we've already seen the end frame, we're done
+        if this.finished {
+            return Poll::Ready(None);
+        }
+
+        loop {
+            match Pin::new(&mut this.message_stream).poll_next(cx) {
+                Poll::Ready(Some(Ok(frame))) => {
+                    if frame.end {
+                        // End-of-stream frame
+                        this.finished = true;
+                        return Poll::Ready(None);
+                    }
+
+                    // Skip empty frames (e.g. keep-alives)
+                    if frame.data.is_empty() {
+                        continue;
+                    }
+
+                    // Decode the message data
+                    let decoded = this.codec.decode::<O>(&frame.data);
+                    return Poll::Ready(Some(decoded));
+                }
+                Poll::Ready(Some(Err(err))) => {
+                    this.finished = true;
+                    return Poll::Ready(Some(Err(err)));
+                }
+                Poll::Ready(None) => {
+                    // Stream ended unexpectedly or cleanly after end frame
+                    this.finished = true;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
 
     #[tokio::test]
     async fn test_frame_encoder_single_message() {
         use futures_util::stream;
 
         let messages = vec![vec![1, 2, 3, 4, 5]];
-        let message_stream = stream::iter(messages);
+        let message_stream = stream::iter(messages.into_iter().map(Ok));
         let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // First frame: the message
@@ -263,7 +371,7 @@ mod tests {
         use futures_util::stream;
 
         let messages = vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9]];
-        let message_stream = stream::iter(messages);
+        let message_stream = stream::iter(messages.into_iter().map(Ok));
         let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // Frame 1: first message (3 bytes)
@@ -305,8 +413,8 @@ mod tests {
     async fn test_frame_encoder_empty_stream() {
         use futures_util::stream;
 
-        let messages: Vec<Vec<u8>> = vec![];
-        let message_stream = stream::iter(messages);
+    let messages: Vec<Vec<u8>> = vec![];
+    let message_stream = stream::iter(messages.into_iter().map(Ok));
         let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // Only frame: end-of-stream
@@ -319,28 +427,5 @@ mod tests {
 
         // Stream should end
         assert!(encoder.next().await.is_none());
-    }
-}
-
-/// A utility for decoding Connect frames from a stream of bytes.
-///
-/// This provides a convenient way to parse frames for testing and validation.
-pub struct StreamDecoder;
-
-impl StreamDecoder {
-    /// Decode frames from a stream that yields `Result<Bytes>`.
-    ///
-    /// This is particularly useful for testing frame encoders, as it can
-    /// directly consume the output of `StreamingFrameEncoder` and parse
-    /// it back into `ConnectFrame` objects.
-    pub fn decode_frames<S>(stream: S) -> impl Stream<Item = Result<ConnectFrame>>
-    where
-        S: Stream<Item = Result<Bytes>>,
-    {
-        // Convert the Result<Bytes> stream to the format expected by ConnectFrame::bytes_stream
-        let byte_stream =
-            stream.map(|result: Result<Bytes>| result.map_err(|e| Box::new(e) as BoxError));
-
-        ConnectFrame::bytes_stream(byte_stream)
     }
 }

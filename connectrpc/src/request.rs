@@ -279,7 +279,7 @@ impl Builder {
         message: Vec<u8>,
     ) -> Result<http::Request<ServerStreamingEncoder>> {
         self.validate()?;
-        let stream = UnpinStream(Box::pin(stream::iter(std::iter::once(message))));
+        let stream = UnpinStream(Box::pin(stream::iter(std::iter::once(Ok(message)))));
         let encoder = StreamingFrameEncoder::new(stream);
         let mut req = self.request_base(Method::POST, encoder)?;
         let headers = req.headers_mut();
@@ -311,7 +311,7 @@ impl Builder {
         message_stream: S,
     ) -> Result<http::Request<StreamingFrameEncoder<S>>>
     where
-        S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
+        S: Stream<Item = Result<Vec<u8>>> + Send + Unpin,
     {
         self.validate()?;
         let encoder = StreamingFrameEncoder::new(message_stream);
@@ -346,7 +346,7 @@ impl Builder {
         message_stream: S,
     ) -> Result<http::Request<StreamingFrameEncoder<S>>>
     where
-        S: Stream<Item = Vec<u8>> + Send + Sync + Unpin,
+        S: Stream<Item = Result<Vec<u8>>> + Send + Unpin,
     {
         self.validate()?;
         let encoder = StreamingFrameEncoder::new(message_stream);
@@ -399,7 +399,7 @@ impl Builder {
 /// Parts of a request, used for decomposing and composing requests.
 pub struct Parts<T>
 where
-    T: Send + Sync,
+    T: Send,
 {
     pub metadata: HeaderMap,
     pub body: T,
@@ -547,17 +547,17 @@ where
 pub struct ClientStreamingRequest<T, S>
 where
     T: Send + Sync,
-    S: Stream<Item = T> + Send + Sync,
+    S: Stream<Item = Result<T>> + Send,
 {
-    metadata: HeaderMap,
-    message_stream: S,
-    _phantom: std::marker::PhantomData<T>,
+    pub(crate) metadata: HeaderMap,
+    pub(crate) message_stream: S,
+    pub(crate) _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T, S> ClientStreamingRequest<T, S>
 where
     T: Send + Sync,
-    S: Stream<Item = T> + Send + Sync,
+    S: Stream<Item = Result<T>> + Send,
 {
     /// Create a new client streaming request with the given message stream and empty metadata.
     pub fn new(message_stream: S) -> Self {
@@ -614,7 +614,7 @@ where
 pub struct BidiStreamingRequest<T, S>
 where
     T: Send + Sync,
-    S: Stream<Item = T> + Send + Sync,
+    S: Stream<Item = Result<T>> + Send,
 {
     metadata: HeaderMap,
     message_stream: S,
@@ -624,7 +624,7 @@ where
 impl<T, S> BidiStreamingRequest<T, S>
 where
     T: Send + Sync,
-    S: Stream<Item = T> + Send + Sync,
+    S: Stream<Item = Result<T>> + Send,
 {
     /// Create a new client streaming request with the given message stream and empty metadata.
     pub fn new(message_stream: S) -> Self {
