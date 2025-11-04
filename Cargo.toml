@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = [ "connectrpc" , "connectrpc-build", "examples/axum-server-unary", "examples/reqwest-client"]
+members = [
+    "connectrpc",
+    "connectrpc-build",
+    "examples/axum-curl-unary",
+    "examples/axum-reqwest",
+    "examples/reqwest-client",
+]
 
 [workspace.package]
 edition = "2024"
@@ -9,11 +15,15 @@ authors = ["Nikola Jokic <jokicnikola07@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/nikola-jokic/connectrpc"
 readme = "README.md"
-categories = ["web-programming", "network-programming", "web-programming::http-client", "web-programming::http-server"]
+categories = [
+    "web-programming",
+    "network-programming",
+    "web-programming::http-client",
+    "web-programming::http-server",
+]
 keywords = ["connectrpc", "http", "http2"]
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
-

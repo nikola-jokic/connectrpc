@@ -1,4 +1,4 @@
-use axum_server_unary::{HelloRequest, HelloResponse};
+use axum_curl_unary::{HelloRequest, HelloResponse};
 use connectrpc::{Error, Result, UnaryRequest, UnaryResponse};
 use std::{
     collections::BTreeMap,
@@ -46,7 +46,7 @@ async fn main() {
     //
     //   2. It issues a compile-time error when you re-generate the code and forget to
     //   implement a new method.
-    let router = axum_server_unary::HelloWorldServiceAxumServer {
+    let router = axum_curl_unary::HelloWorldServiceAxumServer {
         // The server uses fields to store state and handlers
         // Store the state directly in the server struct
         state: State {

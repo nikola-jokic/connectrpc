@@ -1,12 +1,41 @@
-use axum_reqwest::{
-    client,
-};
-use connectrpc::{Error, Result, UnaryRequest, UnaryResponse, http::Uri};
+use axum_reqwest::{HelloRequest, HelloResponse, HelloWorldServiceAsyncService};
+use connectrpc::http::Uri;
+use connectrpc::{Error, Result, UnaryRequest, UnaryResponse};
+use std::str::FromStr;
 use std::{
-    collections::BTreeMap, str::FromStr, sync::{Arc, Mutex}
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+use tokio::task::JoinHandle;
 
-const ADDR: &str = "127.0.0.1:50051";
+const SERVER_ADDR: &str = "127.0.0.1:50051";
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let server_handle = spawn_server().await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let client = axum_reqwest::HelloWorldServiceReqwestProtoClient::new(
+        reqwest::Client::new(),
+        Uri::from_str("http://127.0.0.1:50051").expect("Failed to create URI"),
+    )
+    .expect("Failed to create client");
+
+    let response = client
+        .say_hello(UnaryRequest::new(HelloRequest {
+            name: Some("Axum".to_string()),
+        }))
+        .await
+        .map_err(|e| anyhow::anyhow!("RPC failed: {:?}", e))?;
+
+    let response_message = response.into_message();
+    println!("Received response: {:?}", response_message);
+    assert_eq!(response_message.message, "Hello, Axum!");
+
+    server_handle.abort();
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 struct State {
@@ -34,21 +63,13 @@ async fn say_hello(
         }
     };
 
+    println!("Generated message: {}", message);
     let response = HelloResponse { message };
     Ok(UnaryResponse::new(response))
 }
 
-async fn start_server() {
-    // Create the Axum router with the generated server and your handler
-    //
-    // There is a big reason why we don't use `axum::Router::new()` directly, but rather
-    // as using the generated server struct:
-    //   1. You can swap handlers easily, without using a single struct that implements
-    //   the whole service trait.
-    //
-    //   2. It issues a compile-time error when you re-generate the code and forget to
-    //   implement a new method.
-    let router = axum_reqwest::server::HelloWorldServiceAxumServer {
+async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
+    let router = axum_reqwest::HelloWorldServiceAxumServer {
         // The server uses fields to store state and handlers
         // Store the state directly in the server struct
         state: State {
@@ -59,29 +80,10 @@ async fn start_server() {
     }
     .into_router();
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:50051")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(SERVER_ADDR).await.unwrap();
 
-    println!("Axum server listening on 127.0.0.1:50051");
-    axum::serve(listener, router).await.unwrap();
-}
-
-#[tokio::main]
-async fn main() {
-    let server_handle = tokio::spawn(async {
-        start_server().await;
-    });
-
-    let reqwest = reqwest::Client::new(); // Create reqwest client. You can customize it as needed.
-    let json_client = client::HelloWorldServiceReqwestJsonClient::new(
-        reqwest,
-        Uri::from_str(&format!("http://{}", ADDR)).unwrap(),
-    )
-    .expect("Failed to create client");
-    
-    json_client.say_hello(UnaryRequest::new())
-
-    // Wait for the server to finish
-    let _ = server_handle.await;
+    Ok(tokio::spawn(async move {
+        println!("Axum server listening on {SERVER_ADDR}");
+        axum::serve(listener, router).await.unwrap();
+    }))
 }

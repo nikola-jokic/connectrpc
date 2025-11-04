@@ -40,6 +40,9 @@ jobs:
         uses: dtolnay/rust-toolchain@5d458579430fc14a04a08a1e7d3694f545e91ce6
         with:
           toolchain: stable
-      - name: Test axum-server-unary example
-        working-directory: ./examples/axum-server-unary
+      - name: Test axum-curl-unary example
+        working-directory: ./examples/axum-curl-unary
+        run: cargo test --locked --all-features --verbose
+      - name: Test axum-reqwest example
+        working-directory: ./examples/axum-reqwest
         run: cargo test --locked --all-features --verbose

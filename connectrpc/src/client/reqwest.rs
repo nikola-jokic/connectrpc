@@ -123,7 +123,7 @@ where
         req: ClientStreamingRequest<I, S>,
     ) -> Result<ClientStreamingResponse<O>>
     where
-        S: Stream<Item = I> + Send + Sync + 'static,
+        S: Stream<Item = Result<I>> + Send + 'static,
     {
         use reqwest::Body;
 
@@ -143,7 +143,7 @@ where
 
         // Encode each message
         let codec = self.common.message_codec;
-        let encoded_stream = message_stream.map(move |msg| codec.encode(&msg));
+        let encoded_stream = message_stream.map(move |msg| msg.map(|msg| codec.encode(&msg)));
 
         // Wrap in UnpinStream for Unpin compatibility
         let unpin_stream = UnpinStream(Box::pin(encoded_stream));
@@ -202,7 +202,7 @@ where
         req: BidiStreamingRequest<I, SReq>,
     ) -> Result<BidiStreamingResponse<O>>
     where
-        SReq: Stream<Item = I> + Send + Sync + 'static,
+        SReq: Stream<Item = Result<I>> + Send + 'static,
     {
         use reqwest::Body;
 
@@ -222,7 +222,7 @@ where
 
         // Encode each message
         let codec = self.common.message_codec;
-        let encoded_stream = message_stream.map(move |msg| codec.encode(&msg));
+        let encoded_stream = message_stream.map(move |msg| msg.map(|msg| codec.encode(&msg)));
 
         // Wrap in UnpinStream for Unpin compatibility
         let unpin_stream = UnpinStream(Box::pin(encoded_stream));
