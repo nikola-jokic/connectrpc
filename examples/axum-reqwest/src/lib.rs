@@ -17,8 +17,7 @@ pub trait HelloWorldServiceAsyncService: Send + Sync {
         request: ::connectrpc::UnaryRequest<HelloRequest>,
     ) -> impl std::future::Future<
         Output = ::connectrpc::Result<::connectrpc::UnaryResponse<HelloResponse>>,
-    > + Send
-    + '_;
+    > + Send + '_;
 }
 #[derive(Clone)]
 pub struct HelloWorldServiceReqwestProtoClient {
@@ -43,9 +42,7 @@ impl HelloWorldServiceAsyncService for HelloWorldServiceReqwestProtoClient {
         &self,
         request: ::connectrpc::UnaryRequest<HelloRequest>,
     ) -> ::connectrpc::Result<::connectrpc::UnaryResponse<HelloResponse>> {
-        self.say_hello
-            .call_unary("/hello.HelloWorldService/SayHello", request)
-            .await
+        self.say_hello.call_unary("/hello.HelloWorldService/SayHello", request).await
     }
 }
 pub struct HelloWorldServiceAxumServer<S, H1>
@@ -66,15 +63,14 @@ where
         let common_server = ::connectrpc::server::CommonServer::new();
         let say_hello = self.say_hello;
         let cs = common_server.clone();
-        router = router.route(
-            "/hello.HelloWorldService/SayHello",
-            ::axum::routing::any(
-                move |::axum::extract::State(state): ::axum::extract::State<S>,
-                      req: ::axum::extract::Request| async move {
-                    say_hello.call(req, state, cs).await
-                },
-            ),
-        );
+        router = router
+            .route(
+                "/hello.HelloWorldService/SayHello",
+                ::axum::routing::any(move |
+                    ::axum::extract::State(state): ::axum::extract::State<S>,
+                    req: ::axum::extract::Request|
+                async move { say_hello.call(req, state, cs).await }),
+            );
         router.with_state(self.state)
     }
 }
@@ -103,7 +99,9 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["name"];
+        const FIELDS: &[&str] = &[
+            "name",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -119,10 +117,7 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
                 impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -149,8 +144,8 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<HelloRequest, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
+                where
+                    V: serde::de::MapAccess<'de>,
             {
                 let mut name__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -163,7 +158,9 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
                         }
                     }
                 }
-                Ok(HelloRequest { name: name__ })
+                Ok(HelloRequest {
+                    name: name__,
+                })
             }
         }
         deserializer.deserialize_struct("hello.HelloRequest", FIELDS, GeneratedVisitor)
@@ -193,7 +190,9 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["message"];
+        const FIELDS: &[&str] = &[
+            "message",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -209,10 +208,7 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
                 impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -239,8 +235,8 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<HelloResponse, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
+                where
+                    V: serde::de::MapAccess<'de>,
             {
                 let mut message__ = None;
                 while let Some(k) = map_.next_key()? {
