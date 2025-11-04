@@ -79,7 +79,12 @@ impl Builder {
     /// prefix for all your services, you can set it here. The leading and trailing '/' will be
     /// trimmed if present.
     pub fn path_prefix(mut self, path: impl Into<String>) -> Self {
-        self.path_prefix = Some(path.into().trim_matches('/').to_string());
+        let path = path.into().trim_matches('/').to_string();
+        if path.is_empty() {
+            self.path_prefix = None;
+        } else {
+            self.path_prefix = Some(path);
+        }
         self
     }
 

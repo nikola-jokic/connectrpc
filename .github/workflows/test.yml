@@ -43,3 +43,6 @@ jobs:
       - name: Test axum-curl-unary example
         working-directory: ./examples/axum-curl-unary
         run: cargo test --locked --all-features --verbose
+      - name: Test axum-reqwest example
+        working-directory: ./examples/axum-reqwest
+        run: cargo test --locked --all-features --verbose
