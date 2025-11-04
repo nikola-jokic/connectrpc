@@ -4,12 +4,12 @@ use crate::request::UnaryRequest;
 use crate::request::{ClientStreamingRequest, RequestResponseOptions};
 use crate::response::{ClientStreamingResponse, UnaryResponse};
 use crate::server::CommonServer;
-use crate::stream::{ConnectFrame, StreamingFrameDecoder};
+use crate::stream::{ConnectFrame, StreamingFrameDecoder, StreamingFrameEncoder};
 use crate::{Codec, Result};
 use axum::body::{self, Body};
 use axum::http::{Method, Request};
 use axum::response::Response;
-use futures_util::Stream;
+use futures_util::{Stream, stream};
 use prost::Message;
 use serde::{Serialize, de::DeserializeOwned};
 use std::pin::Pin;
@@ -119,9 +119,47 @@ where
                 Err(e) => return Response::from(e),
             };
 
-            let _ = (&req, &option, &state);
+            match self(state, req).await {
+                Ok(res) => {
+                    let crate::response::Parts {
+                        status,
+                        metadata: headers,
+                        message: body,
+                    } = res.into_parts();
 
-            todo!()
+                    let mut builder = http::Response::builder().status(status);
+
+                    for (k, v) in headers.into_iter() {
+                        if let Some(header_name) = k {
+                            builder = builder.header(header_name, v);
+                        }
+                    }
+
+                    builder = builder.header(
+                        CONTENT_TYPE,
+                        HeaderValue::from_str(&format!(
+                            "application/connect+{}",
+                            option.message_codec.name()
+                        ))
+                        .unwrap(),
+                    );
+
+                    for option in option.accept_encodings {
+                        builder = builder.header("Accept-Encoding", option);
+                    }
+
+                    let encoded_message = option.message_codec.encode(&body);
+
+                    let encoded_stream = stream::iter(vec![Ok(encoded_message)]);
+
+                    let framed_stream = StreamingFrameEncoder::new(encoded_stream);
+
+                    let result = builder.body(framed_stream).unwrap();
+
+                    result.map(Body::from_stream)
+                }
+                Err(e) => Response::from(e),
+            }
         })
     }
 }
@@ -263,13 +301,13 @@ where
         })
         .transpose()?;
 
-    if let Some(encoding) = content_encoding {
-        if encoding != "identity" {
-            return Err(Error::invalid_request(format!(
-                "unsupported Connect-Content-Encoding: {}",
-                encoding
-            )));
-        }
+    if let Some(encoding) = content_encoding
+        && encoding != "identity"
+    {
+        return Err(Error::invalid_request(format!(
+            "unsupported Connect-Content-Encoding: {}",
+            encoding
+        )));
     }
 
     let accept_encodings = headers
