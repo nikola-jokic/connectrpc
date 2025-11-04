@@ -1,5 +1,5 @@
 [package]
-name = "axum-server-unary"
+name = "axum-curl-unary"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

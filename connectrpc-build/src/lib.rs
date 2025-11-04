@@ -451,7 +451,6 @@ fn generate_axum_server_struct(service: &Service, struct_name: &syn::Ident) -> s
 
 fn generate_axum_server_impl(service: &Service, struct_name: &syn::Ident) -> syn::ItemImpl {
     let mut route_inits = Vec::with_capacity(service.methods.len());
-    // let mut route_adds = Vec::with_capacity(service.methods.len());
 
     let mut handlers = Vec::with_capacity(service.methods.len());
     for i in 1..=service.methods.len() {

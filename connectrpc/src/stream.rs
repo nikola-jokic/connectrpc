@@ -275,7 +275,7 @@ where
         Self {
             message_stream,
             finished: false,
-            codec: codec,
+            codec,
             _marker: std::marker::PhantomData,
         }
     }

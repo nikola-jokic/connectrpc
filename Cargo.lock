@@ -121,7 +121,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-server-unary"
+name = "axum-curl-unary"
 version = "0.1.1"
 dependencies = [
  "axum",
@@ -131,6 +131,22 @@ dependencies = [
  "pbjson-types",
  "prost",
  "protoc-fetcher",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "axum-reqwest"
+version = "0.1.1"
+dependencies = [
+ "axum",
+ "connectrpc",
+ "connectrpc-build",
+ "pbjson",
+ "pbjson-types",
+ "prost",
+ "protoc-fetcher",
+ "reqwest",
  "serde",
  "tokio",
 ]
