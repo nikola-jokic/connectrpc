@@ -16,8 +16,6 @@ async fn main() -> anyhow::Result<()> {
     let server_handle = spawn_server().await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-
-
     let client = axum_reqwest::HelloWorldServiceReqwestProtoClient::new(
         reqwest::Client::new(),
         Uri::from_str("http://127.0.0.1:50051").expect("Failed to create URI"),
@@ -80,8 +78,7 @@ async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
         // Provide the handler function for the SayHello RPC
         say_hello,
     }
-    .into_router()
-;
+    .into_router();
 
     let listener = tokio::net::TcpListener::bind(SERVER_ADDR).await.unwrap();
 

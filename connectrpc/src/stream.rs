@@ -413,8 +413,8 @@ mod tests {
     async fn test_frame_encoder_empty_stream() {
         use futures_util::stream;
 
-    let messages: Vec<Vec<u8>> = vec![];
-    let message_stream = stream::iter(messages.into_iter().map(Ok));
+        let messages: Vec<Vec<u8>> = vec![];
+        let message_stream = stream::iter(messages.into_iter().map(Ok));
         let mut encoder = StreamingFrameEncoder::new(message_stream);
 
         // Only frame: end-of-stream
