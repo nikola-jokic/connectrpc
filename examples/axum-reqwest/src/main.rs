@@ -50,10 +50,7 @@ async fn main() -> anyhow::Result<()> {
 
     let response_message = stream.into_message();
     println!("Received stream response: {:?}", response_message);
-    assert_eq!(
-        response_message.message,
-        "Hello Nikola, John"
-    );
+    assert_eq!(response_message.message, "Hello Nikola, John");
 
     server_handle.abort();
     Ok(())

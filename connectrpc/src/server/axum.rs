@@ -9,7 +9,7 @@ use crate::{Codec, Result};
 use axum::body::{self, Body};
 use axum::http::{Method, Request};
 use axum::response::Response;
-use futures_util::{stream};
+use futures_util::stream;
 use prost::Message;
 use serde::{Serialize, de::DeserializeOwned};
 use std::pin::Pin;
@@ -101,11 +101,7 @@ where
     TMReq: Message + DeserializeOwned + Default + Send + 'static,
     TMRes: Message + Serialize + Send + 'static,
     TFnFut: Future<Output = Result<ClientStreamingResponse<TMRes>>> + Send + 'static,
-    TFn: FnOnce(TState, ClientStreamingRequest<TMReq>) -> TFnFut
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    TFn: FnOnce(TState, ClientStreamingRequest<TMReq>) -> TFnFut + Clone + Send + Sync + 'static,
     TState: Send + Sync + 'static,
 {
     type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
@@ -253,10 +249,7 @@ where
 async fn parse_client_streaming_request<TMReq>(
     req: Request<Body>,
     _srv: CommonServer,
-) -> Result<(
-    ClientStreamingRequest<TMReq>,
-    RequestResponseOptions,
-)>
+) -> Result<(ClientStreamingRequest<TMReq>, RequestResponseOptions)>
 where
     TMReq: Message + DeserializeOwned + Default + Send + 'static,
 {

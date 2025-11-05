@@ -4,12 +4,8 @@ use crate::client::AsyncStreamingClient;
 use crate::codec::Codec;
 use crate::connect::{DecodeMessage, EncodeMessage};
 use crate::error::Error;
-use crate::request::{
-    self, ClientStreamingRequest, ServerStreamingRequest, UnaryRequest,
-};
-use crate::response::{
-    ClientStreamingResponse, ServerStreamingResponse, UnaryResponse,
-};
+use crate::request::{self, ClientStreamingRequest, ServerStreamingRequest, UnaryRequest};
+use crate::response::{ClientStreamingResponse, ServerStreamingResponse, UnaryResponse};
 use crate::stream::{ConnectFrame, UnpinStream};
 use bytes::Bytes;
 use futures_util::stream::StreamExt;
@@ -160,7 +156,8 @@ where
 
         // Box the frame encoder stream to erase the type
         // This allows Body::wrap_stream to work with the 'static requirement
-        let boxed_stream = Box::pin(frame_encoder) as std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes>> + Send>>;
+        let boxed_stream = Box::pin(frame_encoder)
+            as std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes>> + Send>>;
         let body = Body::wrap_stream(boxed_stream);
         req_builder = req_builder.body(body);
 
@@ -180,10 +177,10 @@ where
             // Read response body and decode Connect frames
             let stream = response.bytes_stream();
             let frames = ConnectFrame::bytes_stream(stream);
-            
+
             // Get the first message frame (there should only be one for client streaming)
             let mut frame_stream = Box::pin(frames);
-            
+
             let message = if let Some(frame_result) = frame_stream.next().await {
                 let frame = frame_result?;
                 self.common.message_codec.decode(&frame.data)?
