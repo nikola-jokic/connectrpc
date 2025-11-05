@@ -15,7 +15,10 @@ use futures_util::Stream;
 use futures_util::stream;
 use http::uri::{Authority, Scheme};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri};
+use std::pin::Pin;
 use std::time::Duration;
+
+type BoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + Unpin>>;
 
 /// A builder for constructing HTTP requests for Connect services.
 /// You can use this builder to create requests directly.
@@ -549,27 +552,23 @@ where
     }
 }
 
-pub struct ClientStreamingRequest<T, S>
+pub struct ClientStreamingRequest<T>
 where
     T: Send + Sync,
-    S: Stream<Item = Result<T>> + Send,
 {
     pub(crate) metadata: HeaderMap,
-    pub(crate) message_stream: S,
-    pub(crate) _phantom: std::marker::PhantomData<T>,
+    pub(crate) message_stream: BoxStream<Result<T>>,
 }
 
-impl<T, S> ClientStreamingRequest<T, S>
+impl<T> ClientStreamingRequest<T>
 where
     T: Send + Sync,
-    S: Stream<Item = Result<T>> + Send,
 {
     /// Create a new client streaming request with the given message stream and empty metadata.
-    pub fn new(message_stream: S) -> Self {
+    pub fn new(message_stream: BoxStream<Result<T>>) -> Self {
         Self {
             metadata: HeaderMap::new(),
             message_stream,
-            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -589,7 +588,7 @@ where
     }
 
     /// Decomposes the request into its parts.
-    pub fn into_parts(self) -> Parts<S> {
+    pub fn into_parts(self) -> Parts<BoxStream<Result<T>>> {
         Parts {
             metadata: self.metadata,
             body: self.message_stream,
@@ -597,21 +596,20 @@ where
     }
 
     /// Creates a request from its parts.
-    pub fn from_parts(parts: Parts<S>) -> Self {
+    pub fn from_parts(parts: Parts<BoxStream<Result<T>>>) -> Self {
         Self {
             metadata: parts.metadata,
             message_stream: parts.body,
-            _phantom: std::marker::PhantomData,
         }
     }
 
     /// Consumes the request, returning the message stream.
-    pub fn into_message_stream(self) -> S {
+    pub fn into_message_stream(self) -> BoxStream<Result<T>> {
         self.message_stream
     }
 
     /// Returns a reference to the message stream.
-    pub fn message_stream(&self) -> &S {
+    pub fn message_stream(&self) -> &BoxStream<Result<T>> {
         &self.message_stream
     }
 }

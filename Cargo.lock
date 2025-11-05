@@ -143,6 +143,7 @@ dependencies = [
  "axum",
  "connectrpc",
  "connectrpc-build",
+ "futures-util",
  "pbjson",
  "pbjson-types",
  "prost",

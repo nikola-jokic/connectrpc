@@ -1,6 +1,9 @@
 use axum_reqwest::{HelloRequest, HelloResponse, HelloWorldServiceAsyncService};
 use connectrpc::http::Uri;
-use connectrpc::{Error, Result, UnaryRequest, UnaryResponse};
+use connectrpc::{
+    ClientStreamingRequest, ClientStreamingResponse, Error, Result, UnaryRequest, UnaryResponse,
+};
+use futures_util::{StreamExt, stream};
 use std::str::FromStr;
 use std::{
     collections::BTreeMap,
@@ -32,6 +35,25 @@ async fn main() -> anyhow::Result<()> {
     let response_message = response.into_message();
     println!("Received response: {:?}", response_message);
     assert_eq!(response_message.message, "Hello, Axum!");
+
+    let stream = client
+        .say_hello_client_stream(ClientStreamingRequest::new(Box::pin(stream::iter(vec![
+            Ok(HelloRequest {
+                name: Some("Nikola".to_string()),
+            }),
+            Ok(HelloRequest {
+                name: Some("John".to_string()),
+            }),
+        ]))))
+        .await
+        .map_err(|e| anyhow::anyhow!("RPC failed: {:?}", e))?;
+
+    let response_message = stream.into_message();
+    println!("Received stream response: {:?}", response_message);
+    assert_eq!(
+        response_message.message,
+        "Client streaming not yet implemented"
+    );
 
     server_handle.abort();
     Ok(())
@@ -68,6 +90,22 @@ async fn say_hello(
     Ok(UnaryResponse::new(response))
 }
 
+async fn say_hello_client_stream(
+    _state: State,
+    request: ClientStreamingRequest<HelloRequest>,
+) -> Result<ClientStreamingResponse<HelloResponse>> {
+    let mut names = vec![];
+    let mut messages = request.into_message_stream();
+    while let Some(req) = messages.next().await {
+        let req = req.expect("Failed to read message from stream");
+        names.push(req.name.expect("Name is required"))
+    }
+
+    Ok(ClientStreamingResponse::new(HelloResponse {
+        message: format!("Hello {}", names.join(", ")),
+    }))
+}
+
 async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
     let router = axum_reqwest::HelloWorldServiceAxumServer {
         // The server uses fields to store state and handlers
@@ -77,6 +115,7 @@ async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
         },
         // Provide the handler function for the SayHello RPC
         say_hello,
+        say_hello_client_stream,
     }
     .into_router();
 

@@ -139,7 +139,7 @@ where
 
 impl<T> ServerStreamingResponse<T>
 where
-    T: DecodeMessage + Send + 'static,
+    T: DecodeMessage + Send,
 {
     /// Consumes the response and returns a stream of decoded messages.
     /// Each item in the stream is a `Result<T>` where `T` is the decoded message type.
@@ -200,7 +200,7 @@ where
 
 impl<T> BidiStreamingResponse<T>
 where
-    T: DecodeMessage + Send + 'static,
+    T: DecodeMessage + Send,
 {
     /// Consumes the response and returns a stream of decoded messages.
     /// Each item in the stream is a `Result<T>` where `T` is the decoded message type.
@@ -241,6 +241,20 @@ where
     pub status: http::StatusCode,
     pub metadata: HeaderMap,
     pub message: T,
+}
+
+impl<T> ClientStreamingResponse<T>
+where
+    T: Send + Sync,
+{
+    /// Creates a new `ClientStreamingResponse` with the given message, status, and metadata.
+    pub fn new(message: T) -> Self {
+        Self {
+            status: http::StatusCode::OK,
+            metadata: HeaderMap::new(),
+            message,
+        }
+    }
 }
 
 impl<T> ClientStreamingResponse<T>

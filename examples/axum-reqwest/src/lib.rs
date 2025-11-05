@@ -10,19 +10,27 @@ pub struct HelloResponse {
     pub message: ::prost::alloc::string::String,
 }
 pub use ::connectrpc;
-use ::connectrpc::client::AsyncUnaryClient;
+use ::connectrpc::client::{AsyncUnaryClient, AsyncStreamingClient};
 pub trait HelloWorldServiceAsyncService: Send + Sync {
     fn say_hello(
         &self,
         request: ::connectrpc::UnaryRequest<HelloRequest>,
     ) -> impl std::future::Future<
         Output = ::connectrpc::Result<::connectrpc::UnaryResponse<HelloResponse>>,
-    > + Send
-    + '_;
+    > + Send + '_;
+    fn say_hello_client_stream(
+        &self,
+        request: ::connectrpc::ClientStreamingRequest<HelloRequest>,
+    ) -> impl std::future::Future<
+        Output = ::connectrpc::Result<
+            ::connectrpc::ClientStreamingResponse<HelloResponse>,
+        >,
+    > + Send + '_;
 }
 #[derive(Clone)]
 pub struct HelloWorldServiceReqwestProtoClient {
     pub say_hello: ::connectrpc::ReqwestClient,
+    pub say_hello_client_stream: ::connectrpc::ReqwestClient,
 }
 impl HelloWorldServiceReqwestProtoClient {
     pub fn new(
@@ -35,6 +43,11 @@ impl HelloWorldServiceReqwestProtoClient {
                 base_uri.clone(),
                 ::connectrpc::codec::Codec::Proto,
             )?,
+            say_hello_client_stream: ::connectrpc::ReqwestClient::new(
+                client.clone(),
+                base_uri.clone(),
+                ::connectrpc::codec::Codec::Proto,
+            )?,
         })
     }
 }
@@ -43,38 +56,67 @@ impl HelloWorldServiceAsyncService for HelloWorldServiceReqwestProtoClient {
         &self,
         request: ::connectrpc::UnaryRequest<HelloRequest>,
     ) -> ::connectrpc::Result<::connectrpc::UnaryResponse<HelloResponse>> {
-        self.say_hello
-            .call_unary("/hello.HelloWorldService/SayHello", request)
+        self.say_hello.call_unary("/hello.HelloWorldService/SayHello", request).await
+    }
+    async fn say_hello_client_stream(
+        &self,
+        request: ::connectrpc::ClientStreamingRequest<HelloRequest>,
+    ) -> ::connectrpc::Result<::connectrpc::ClientStreamingResponse<HelloResponse>> {
+        self.say_hello_client_stream
+            .call_client_streaming(
+                "/hello.HelloWorldService/SayHelloClientStream",
+                request,
+            )
             .await
     }
 }
-pub struct HelloWorldServiceAxumServer<S, H1>
+pub struct HelloWorldServiceAxumServer<S, H1, H2>
 where
     S: Send + Sync + Clone + 'static,
     H1: ::connectrpc::server::axum::RpcUnaryHandler<HelloRequest, HelloResponse, S>,
+    H2: ::connectrpc::server::axum::RpcClientStreamingHandler<
+        HelloRequest,
+        HelloResponse,
+        S,
+    >,
 {
     pub state: S,
     pub say_hello: H1,
+    pub say_hello_client_stream: H2,
 }
-impl<S, H1> HelloWorldServiceAxumServer<S, H1>
+impl<S, H1, H2> HelloWorldServiceAxumServer<S, H1, H2>
 where
     S: Send + Sync + Clone + 'static,
     H1: ::connectrpc::server::axum::RpcUnaryHandler<HelloRequest, HelloResponse, S>,
+    H2: ::connectrpc::server::axum::RpcClientStreamingHandler<
+        HelloRequest,
+        HelloResponse,
+        S,
+    >,
 {
     pub fn into_router(self) -> ::axum::Router {
         let mut router = ::axum::Router::new();
         let common_server = ::connectrpc::server::CommonServer::new();
         let say_hello = self.say_hello;
         let cs = common_server.clone();
-        router = router.route(
-            "/hello.HelloWorldService/SayHello",
-            ::axum::routing::any(
-                move |::axum::extract::State(state): ::axum::extract::State<S>,
-                      req: ::axum::extract::Request| async move {
-                    say_hello.call(req, state, cs).await
-                },
-            ),
-        );
+        router = router
+            .route(
+                "/hello.HelloWorldService/SayHello",
+                ::axum::routing::any(move |
+                    ::axum::extract::State(state): ::axum::extract::State<S>,
+                    req: ::axum::extract::Request|
+                async move { say_hello.call(req, state, cs).await }),
+            );
+        let say_hello_client_stream = self.say_hello_client_stream;
+        let cs = common_server.clone();
+        router = router
+            .route(
+                "/hello.HelloWorldService/SayHelloClientStream",
+                ::axum::routing::any(move |
+                    ::axum::extract::State(state): ::axum::extract::State<S>,
+                    req: ::axum::extract::Request|
+                async move { say_hello_client_stream.call(req, state, cs).await }),
+            );
         router.with_state(self.state)
     }
 }
@@ -103,7 +145,9 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["name"];
+        const FIELDS: &[&str] = &[
+            "name",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -119,10 +163,7 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
                 impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -149,8 +190,8 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<HelloRequest, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
+                where
+                    V: serde::de::MapAccess<'de>,
             {
                 let mut name__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -163,7 +204,9 @@ impl<'de> serde::Deserialize<'de> for HelloRequest {
                         }
                     }
                 }
-                Ok(HelloRequest { name: name__ })
+                Ok(HelloRequest {
+                    name: name__,
+                })
             }
         }
         deserializer.deserialize_struct("hello.HelloRequest", FIELDS, GeneratedVisitor)
@@ -193,7 +236,9 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["message"];
+        const FIELDS: &[&str] = &[
+            "message",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -209,10 +254,7 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
                 impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -239,8 +281,8 @@ impl<'de> serde::Deserialize<'de> for HelloResponse {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<HelloResponse, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
+                where
+                    V: serde::de::MapAccess<'de>,
             {
                 let mut message__ = None;
                 while let Some(k) = map_.next_key()? {

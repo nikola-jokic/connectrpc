@@ -1,7 +1,5 @@
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
-#[cfg(feature = "async")]
-use futures_util::Stream;
 #[cfg(feature = "reqwest")]
 pub use reqwest::ReqwestClient;
 
@@ -11,10 +9,10 @@ use crate::connect::{DecodeMessage, EncodeMessage};
 use crate::error::Error;
 use crate::request::{self, UnaryRequest};
 #[cfg(feature = "async")]
-use crate::request::{BidiStreamingRequest, ClientStreamingRequest, ServerStreamingRequest};
+use crate::request::{ClientStreamingRequest, ServerStreamingRequest};
 use crate::response::UnaryResponse;
 #[cfg(feature = "async")]
-use crate::response::{BidiStreamingResponse, ClientStreamingResponse, ServerStreamingResponse};
+use crate::response::{ClientStreamingResponse, ServerStreamingResponse};
 use crate::stream::ServerStreamingEncoder;
 use bytes::Bytes;
 use http::Uri;
@@ -51,7 +49,7 @@ where
 #[cfg(feature = "async")]
 pub trait AsyncStreamingClient<I, O>: Send + Sync
 where
-    I: Send + Sync,
+    I: Send + Sync + 'static,
     O: Send + Sync,
 {
     fn call_server_streaming(
@@ -60,21 +58,19 @@ where
         req: ServerStreamingRequest<I>,
     ) -> impl Future<Output = Result<ServerStreamingResponse<O>>>;
 
-    fn call_client_streaming<S>(
+    fn call_client_streaming(
         &self,
         path: &str,
-        req: ClientStreamingRequest<I, S>,
-    ) -> impl Future<Output = Result<ClientStreamingResponse<O>>>
-    where
-        S: Stream<Item = Result<I>> + Send + 'static;
+        req: ClientStreamingRequest<I>,
+    ) -> impl Future<Output = Result<ClientStreamingResponse<O>>>;
 
-    fn call_bidi_streaming<SReq>(
-        &self,
-        path: &str,
-        req: BidiStreamingRequest<I, SReq>,
-    ) -> impl Future<Output = Result<BidiStreamingResponse<O>>>
-    where
-        SReq: Stream<Item = Result<I>> + Send + 'static;
+    // fn call_bidi_streaming<SReq>(
+    //     &self,
+    //     path: &str,
+    //     req: BidiStreamingRequest<I, SReq>,
+    // ) -> impl Future<Output = Result<BidiStreamingResponse<O>>>
+    // where
+    //     SReq: Stream<Item = Result<I>> + Send;
 }
 
 #[cfg(feature = "sync")]

@@ -14,8 +14,8 @@ pub mod stream;
 
 pub use crate::codec::Codec;
 pub use crate::error::Error;
-pub use crate::request::UnaryRequest;
-pub use crate::response::UnaryResponse;
+pub use crate::request::{ClientStreamingRequest, ServerStreamingRequest, UnaryRequest};
+pub use crate::response::{ClientStreamingResponse, ServerStreamingResponse, UnaryResponse};
 
 #[cfg(feature = "reqwest")]
 pub use client::reqwest::ReqwestClient;

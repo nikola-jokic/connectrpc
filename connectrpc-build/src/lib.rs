@@ -196,6 +196,15 @@ struct Method {
 
     /// The output type of this method.
     output_type: syn::Type,
+
+    call_type: CallType,
+}
+
+enum CallType {
+    Unary,
+    ClientStreaming,
+    ServerStreaming,
+    BidiStreaming,
 }
 
 impl Service {
@@ -240,6 +249,15 @@ impl Method {
             proto_name: message,
             input_type,
             output_type,
+            call_type: if m.client_streaming && m.server_streaming {
+                CallType::BidiStreaming
+            } else if m.client_streaming {
+                CallType::ClientStreaming
+            } else if m.server_streaming {
+                CallType::ServerStreaming
+            } else {
+                CallType::Unary
+            },
         }
     }
 }
@@ -284,7 +302,7 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
             }
             if !generates.is_empty() {
                 use_items.push(parse_quote! {
-                    use ::connectrpc::client::AsyncUnaryClient;
+                    use ::connectrpc::client::{AsyncUnaryClient, AsyncStreamingClient};
                 })
             }
             for (client, codec) in generates {
@@ -324,12 +342,35 @@ fn generate_async_service_trait(service: &Service, service_trait: &syn::Ident) -
         let input_type = &m.input_type;
         let output_type = &m.output_type;
 
-        trait_methods.push(parse_quote! {
+        match m.call_type {
+            CallType::Unary => {
+                trait_methods.push(parse_quote! {
                 fn #name(
                     &self,
                     request: ::connectrpc::UnaryRequest<#input_type>
                 ) -> impl std::future::Future<Output = ::connectrpc::Result<::connectrpc::UnaryResponse<#output_type>>> + Send + '_;
             });
+            }
+            CallType::ClientStreaming => {
+                trait_methods.push(parse_quote! {
+                fn #name(
+                    &self,
+                    request: ::connectrpc::ClientStreamingRequest<#input_type>
+                ) -> impl std::future::Future<Output = ::connectrpc::Result<::connectrpc::ClientStreamingResponse<#output_type>>> + Send + '_;
+            });
+            }
+            CallType::ServerStreaming => {
+                trait_methods.push(parse_quote! {
+                fn #name(
+                    &self,
+                    request: ::connectrpc::ServerStreamingRequest<#input_type>
+                ) -> impl std::future::Future<Output = ::connectrpc::Result<::connectrpc::ServerStreamingResponse<#output_type>>> + Send + '_;
+                });
+            }
+            CallType::BidiStreaming => {
+                panic!("Not supported bidi")
+            }
+        };
     }
 
     parse_quote! {
@@ -396,14 +437,31 @@ fn generate_reqwest_client_trait_impl(
         let output_type = &m.output_type;
         let path = format!("/{}/{}", service.fqn, m.proto_name);
 
-        client_methods.push(parse_quote! {
-            async fn #name(
-                &self,
-                request: ::connectrpc::UnaryRequest<#input_type>
-            ) -> ::connectrpc::Result<::connectrpc::UnaryResponse<#output_type>> {
-                self.#name.call_unary(#path, request).await
+        match m.call_type {
+            CallType::Unary => {
+                client_methods.push(parse_quote! {
+                    async fn #name(
+                        &self,
+                        request: ::connectrpc::UnaryRequest<#input_type>
+                    ) -> ::connectrpc::Result<::connectrpc::UnaryResponse<#output_type>> {
+                        self.#name.call_unary(#path, request).await
+                    }
+                });
             }
-        });
+            CallType::ClientStreaming => {
+                client_methods.push(parse_quote! {
+                    async fn #name(
+                        &self,
+                        request: ::connectrpc::ClientStreamingRequest<#input_type>
+                    ) -> ::connectrpc::Result<::connectrpc::ClientStreamingResponse<#output_type>> {
+                        self.#name.call_client_streaming(#path, request).await
+                    }
+                });
+            }
+            _ => {
+                panic!("Only unary methods are supported in reqwest client");
+            }
+        }
     }
 
     parse_quote! {
@@ -428,9 +486,22 @@ fn generate_axum_server_struct(service: &Service, struct_name: &syn::Ident) -> s
         let output_type = &method.output_type;
 
         let handler = &handlers[i];
-        handler_constraints.push(quote! {
-            #handler: ::connectrpc::server::axum::RpcUnaryHandler<#input_type, #output_type, S>,
-        });
+
+        match method.call_type {
+            CallType::Unary => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcUnaryHandler<#input_type, #output_type, S>,
+                });
+            }
+            CallType::ClientStreaming => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcClientStreamingHandler<#input_type, #output_type, S>,
+                });
+            }
+            _ => {
+                panic!("Only unary methods are supported in axum server");
+            }
+        }
 
         fields.push(quote! {
             pub #name: #handler,
@@ -476,9 +547,21 @@ fn generate_axum_server_impl(service: &Service, struct_name: &syn::Ident) -> syn
         });
 
         let handler = &handlers[i];
-        handler_constraints.push(quote! {
-            #handler: ::connectrpc::server::axum::RpcUnaryHandler<#input_type, #output_type, S>,
-        });
+        match method.call_type {
+            CallType::Unary => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcUnaryHandler<#input_type, #output_type, S>,
+                });
+            }
+            CallType::ClientStreaming => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcClientStreamingHandler<#input_type, #output_type, S>,
+                });
+            }
+            _ => {
+                panic!("Only unary methods are supported in axum server");
+            }
+        }
     }
 
     parse_quote! {
