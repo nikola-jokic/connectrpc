@@ -3,6 +3,7 @@ use crate::Result;
 use crate::client::AsyncStreamingClient;
 use crate::codec::Codec;
 use crate::connect::{DecodeMessage, EncodeMessage};
+use crate::error::Error;
 use crate::request::{
     self, ClientStreamingRequest, ServerStreamingRequest, UnaryRequest,
 };
@@ -176,11 +177,19 @@ where
             let status = response.status();
             let headers = response.headers().clone();
 
-            // Read response body
-            let body_bytes = response.bytes().await?;
-
-            // Decode response
-            let message: O = self.common.message_codec.decode(&body_bytes)?;
+            // Read response body and decode Connect frames
+            let stream = response.bytes_stream();
+            let frames = ConnectFrame::bytes_stream(stream);
+            
+            // Get the first message frame (there should only be one for client streaming)
+            let mut frame_stream = Box::pin(frames);
+            
+            let message = if let Some(frame_result) = frame_stream.next().await {
+                let frame = frame_result?;
+                self.common.message_codec.decode(&frame.data)?
+            } else {
+                return Err(Error::internal("Empty response from server"));
+            };
 
             Ok(ClientStreamingResponse {
                 status,

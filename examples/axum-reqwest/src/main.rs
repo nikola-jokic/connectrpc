@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Received stream response: {:?}", response_message);
     assert_eq!(
         response_message.message,
-        "Client streaming not yet implemented"
+        "Hello Nikola, John"
     );
 
     server_handle.abort();
