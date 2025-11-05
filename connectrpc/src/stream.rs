@@ -14,6 +14,10 @@ pub type ServerStreamingEncoder = StreamingFrameEncoder<
     UnpinStream<futures_util::stream::Iter<std::iter::Once<Result<Vec<u8>>>>>,
 >;
 
+/// Type alias for a boxed stream of bytes that yields Results.
+/// Used for dynamic dispatch of streaming frame encoders.
+pub type BoxedByteStream = Pin<Box<dyn Stream<Item = Result<Bytes>> + Send + Sync>>;
+
 #[derive(Debug, Clone)]
 pub struct ConnectFrame {
     pub compressed: bool,
@@ -284,7 +288,7 @@ where
 impl<S, O> Stream for StreamingFrameDecoder<S, O>
 where
     S: Stream<Item = Result<ConnectFrame>> + Send + Unpin,
-    O: DecodeMessage + 'static,
+    O: DecodeMessage,
 {
     type Item = Result<O>;
 

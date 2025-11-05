@@ -10,7 +10,7 @@ pub struct HelloResponse {
     pub message: ::prost::alloc::string::String,
 }
 pub use ::connectrpc;
-use ::connectrpc::client::AsyncUnaryClient;
+use ::connectrpc::client::{AsyncStreamingClient, AsyncUnaryClient};
 pub trait HelloWorldServiceAsyncService: Send + Sync {
     fn say_hello(
         &self,

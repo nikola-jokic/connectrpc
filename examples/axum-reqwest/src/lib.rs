@@ -10,7 +10,7 @@ pub struct HelloResponse {
     pub message: ::prost::alloc::string::String,
 }
 pub use ::connectrpc;
-use ::connectrpc::client::AsyncUnaryClient;
+use ::connectrpc::client::{AsyncStreamingClient, AsyncUnaryClient};
 pub trait HelloWorldServiceAsyncService: Send + Sync {
     fn say_hello(
         &self,
@@ -19,10 +19,18 @@ pub trait HelloWorldServiceAsyncService: Send + Sync {
         Output = ::connectrpc::Result<::connectrpc::UnaryResponse<HelloResponse>>,
     > + Send
     + '_;
+    fn say_hello_client_stream(
+        &self,
+        request: ::connectrpc::ClientStreamingRequest<HelloRequest>,
+    ) -> impl std::future::Future<
+        Output = ::connectrpc::Result<::connectrpc::ClientStreamingResponse<HelloResponse>>,
+    > + Send
+    + '_;
 }
 #[derive(Clone)]
 pub struct HelloWorldServiceReqwestProtoClient {
     pub say_hello: ::connectrpc::ReqwestClient,
+    pub say_hello_client_stream: ::connectrpc::ReqwestClient,
 }
 impl HelloWorldServiceReqwestProtoClient {
     pub fn new(
@@ -31,6 +39,11 @@ impl HelloWorldServiceReqwestProtoClient {
     ) -> ::connectrpc::Result<Self> {
         Ok(Self {
             say_hello: ::connectrpc::ReqwestClient::new(
+                client.clone(),
+                base_uri.clone(),
+                ::connectrpc::codec::Codec::Proto,
+            )?,
+            say_hello_client_stream: ::connectrpc::ReqwestClient::new(
                 client.clone(),
                 base_uri.clone(),
                 ::connectrpc::codec::Codec::Proto,
@@ -47,19 +60,30 @@ impl HelloWorldServiceAsyncService for HelloWorldServiceReqwestProtoClient {
             .call_unary("/hello.HelloWorldService/SayHello", request)
             .await
     }
+    async fn say_hello_client_stream(
+        &self,
+        request: ::connectrpc::ClientStreamingRequest<HelloRequest>,
+    ) -> ::connectrpc::Result<::connectrpc::ClientStreamingResponse<HelloResponse>> {
+        self.say_hello_client_stream
+            .call_client_streaming("/hello.HelloWorldService/SayHelloClientStream", request)
+            .await
+    }
 }
-pub struct HelloWorldServiceAxumServer<S, H1>
+pub struct HelloWorldServiceAxumServer<S, H1, H2>
 where
     S: Send + Sync + Clone + 'static,
     H1: ::connectrpc::server::axum::RpcUnaryHandler<HelloRequest, HelloResponse, S>,
+    H2: ::connectrpc::server::axum::RpcClientStreamingHandler<HelloRequest, HelloResponse, S>,
 {
     pub state: S,
     pub say_hello: H1,
+    pub say_hello_client_stream: H2,
 }
-impl<S, H1> HelloWorldServiceAxumServer<S, H1>
+impl<S, H1, H2> HelloWorldServiceAxumServer<S, H1, H2>
 where
     S: Send + Sync + Clone + 'static,
     H1: ::connectrpc::server::axum::RpcUnaryHandler<HelloRequest, HelloResponse, S>,
+    H2: ::connectrpc::server::axum::RpcClientStreamingHandler<HelloRequest, HelloResponse, S>,
 {
     pub fn into_router(self) -> ::axum::Router {
         let mut router = ::axum::Router::new();
@@ -72,6 +96,17 @@ where
                 move |::axum::extract::State(state): ::axum::extract::State<S>,
                       req: ::axum::extract::Request| async move {
                     say_hello.call(req, state, cs).await
+                },
+            ),
+        );
+        let say_hello_client_stream = self.say_hello_client_stream;
+        let cs = common_server.clone();
+        router = router.route(
+            "/hello.HelloWorldService/SayHelloClientStream",
+            ::axum::routing::any(
+                move |::axum::extract::State(state): ::axum::extract::State<S>,
+                      req: ::axum::extract::Request| async move {
+                    say_hello_client_stream.call(req, state, cs).await
                 },
             ),
         );
