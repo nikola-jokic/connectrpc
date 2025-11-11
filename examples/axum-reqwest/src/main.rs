@@ -160,25 +160,19 @@ async fn say_hello_server_stream(
         },
     ];
 
-    // Encode each greeting as a Connect frame, then create an end frame
+    // Encode each greeting as a Connect frame using the high-level API
     let mut frames: Vec<Result<connectrpc::stream::ConnectFrame>> = greetings
         .into_iter()
         .map(|greeting| {
             let encoded_bytes = codec.encode(&greeting);
-            Ok(connectrpc::stream::ConnectFrame {
-                compressed: false,
-                end: false,
-                data: encoded_bytes.into(),
-            })
+            Ok(connectrpc::stream::ConnectFrame::message(
+                encoded_bytes.into(),
+            ))
         })
         .collect();
 
     // Add end-of-stream frame
-    frames.push(Ok(connectrpc::stream::ConnectFrame {
-        compressed: false,
-        end: true,
-        data: vec![].into(),
-    }));
+    frames.push(Ok(connectrpc::stream::ConnectFrame::end_of_stream()));
 
     let frame_stream = stream::iter(frames);
 
