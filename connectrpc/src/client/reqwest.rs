@@ -109,7 +109,8 @@ where
                 _marker: std::marker::PhantomData,
             })
         } else {
-            todo!("Handle error response status: {}", response.status())
+            let status = response.status();
+            Err(Error::internal(format!("HTTP error {}", status)))
         }
     }
 

@@ -29,6 +29,42 @@ pub const FLAGS_COMPRESSED: u8 = 0b1; // bit 0
 pub const FLAGS_END: u8 = 0b10; // bit 1
 
 impl ConnectFrame {
+    /// Create a new message frame (not compressed, not end-of-stream).
+    pub fn message(data: Bytes) -> Self {
+        Self {
+            compressed: false,
+            end: false,
+            data,
+        }
+    }
+
+    /// Create an end-of-stream frame.
+    pub fn end_of_stream() -> Self {
+        Self {
+            compressed: false,
+            end: true,
+            data: Bytes::new(),
+        }
+    }
+
+    /// Encode this frame to bytes for transmission.
+    pub fn encode_to_bytes(&self) -> Bytes {
+        let mut encoded = BytesMut::with_capacity(5 + self.data.len());
+
+        // Flags: bit 0 = compressed, bit 1 = end-of-stream
+        let flags = if self.compressed { FLAGS_COMPRESSED } else { 0 }
+            | if self.end { FLAGS_END } else { 0 };
+        encoded.put_u8(flags);
+
+        // Length (big-endian)
+        encoded.put_u32(self.data.len() as u32);
+
+        // Data
+        encoded.extend_from_slice(&self.data);
+
+        encoded.freeze()
+    }
+
     pub fn body_stream<B>(body: B) -> impl Stream<Item = Result<Self>>
     where
         B: Body<Error: Into<BoxError>>,
@@ -333,6 +369,75 @@ where
                 Poll::Pending => return Poll::Pending,
             }
         }
+    }
+}
+
+/// High-level interface for converting between frame streams and byte streams.
+/// This module provides clean abstractions for working with Connect protocol streams
+/// without exposing low-level frame details like flags or encoding.
+pub mod frame_stream {
+    use super::*;
+
+    /// Convert a stream of ConnectFrames to a byte stream suitable for HTTP transmission.
+    ///
+    /// This handles all frame encoding (flags, length, data format) transparently.
+    /// Use this when you have a frame stream and need to send it over HTTP.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let frame_stream: Pin<Box<dyn Stream<Item = Result<ConnectFrame>> + Send + Sync>> = ...;
+    /// let byte_stream = frame_stream_to_bytes(frame_stream);
+    /// ```
+    pub fn frame_stream_to_bytes<S>(frame_stream: S) -> impl Stream<Item = Result<Bytes>> + Send
+    where
+        S: Stream<Item = Result<ConnectFrame>> + Send + 'static,
+    {
+        frame_stream.map(|frame_result| frame_result.map(|frame| frame.encode_to_bytes()))
+    }
+
+    /// Convert a byte stream to a stream of ConnectFrames.
+    ///
+    /// This handles frame parsing (flags, length, data extraction) transparently.
+    /// Use this when you receive bytes from HTTP and need to parse them as frames.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let byte_stream: impl Stream<Item = Result<Bytes>> = ...;
+    /// let frames = bytes_to_frame_stream(byte_stream);
+    /// ```
+    pub fn bytes_to_frame_stream<S>(stream: S) -> impl Stream<Item = Result<ConnectFrame>>
+    where
+        S: TryStream<Ok: Buf, Error: Into<BoxError>> + Send + 'static,
+    {
+        ConnectFrame::bytes_stream(stream)
+    }
+
+    /// Convert a stream of items to a stream of ConnectFrames.
+    ///
+    /// This automatically encodes each item using the provided codec and wraps it in a frame.
+    /// Use this when you have a stream of messages and want to convert them to frames.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let messages = stream::iter(vec![msg1, msg2, msg3]);
+    /// let frames = items_to_frame_stream(messages, codec);
+    /// ```
+    pub fn items_to_frame_stream<S, T>(
+        stream: S,
+        codec: Codec,
+    ) -> impl Stream<Item = Result<ConnectFrame>> + Send
+    where
+        S: Stream<Item = Result<T>> + Send + 'static,
+        T: crate::connect::EncodeMessage,
+    {
+        stream
+            .map(move |item_result| {
+                item_result.and_then(|item| {
+                    let encoded = codec.encode(&item);
+                    Ok(ConnectFrame::message(encoded.into()))
+                })
+            })
+            .chain(stream::once(async { Ok(ConnectFrame::end_of_stream()) }))
     }
 }
 

@@ -5,7 +5,7 @@ use crate::request::{ClientStreamingRequest, RequestResponseOptions};
 use crate::response::{ClientStreamingResponse, UnaryResponse};
 use crate::server::CommonServer;
 use crate::stream::{ConnectFrame, StreamingFrameDecoder, StreamingFrameEncoder};
-use crate::{Codec, Result};
+use crate::{Codec, Result, ServerStreamingRequest, ServerStreamingResponse};
 use axum::body::{self, Body};
 use axum::http::{Method, Request};
 use axum::response::Response;
@@ -149,6 +149,113 @@ where
                     let framed_stream = StreamingFrameEncoder::new(encoded_stream);
 
                     let result = builder.body(framed_stream).unwrap();
+
+                    result.map(Body::from_stream)
+                }
+                Err(e) => Response::from(e),
+            }
+        })
+    }
+}
+
+pub trait RpcServerStreamingHandler<TMReq, TMRes, TState>:
+    Clone + Send + Sync + Sized + 'static
+{
+    type Future: Future<Output = Response> + Send + 'static;
+
+    fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future;
+}
+
+impl<TMReq, TMRes, TFnFut, TFn, TState> RpcServerStreamingHandler<TMReq, TMRes, TState> for TFn
+where
+    TMReq: Message + DeserializeOwned + Default + Send + 'static,
+    TMRes: Message + Serialize + Send + 'static,
+    TFnFut: Future<Output = Result<ServerStreamingResponse<TMRes>>> + Send + 'static,
+    TFn: FnOnce(TState, ServerStreamingRequest<TMReq>) -> TFnFut + Clone + Send + Sync + 'static,
+    TState: Send + Sync + 'static,
+{
+    type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
+
+    fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future {
+        Box::pin(async move {
+            use crate::stream::ConnectFrame;
+            use futures_util::TryStreamExt;
+
+            // Parse the request
+            let (parts, body) = req.into_parts();
+            let http::request::Parts { headers, .. } = parts;
+
+            // Parse headers to get the codec
+            let codec = match srv.parse_streaming_headers(&headers) {
+                Ok(c) => c,
+                Err(e) => return Response::from(e),
+            };
+
+            // Parse frames from the request body
+            let frames_stream = ConnectFrame::body_stream(body);
+            let mut frames = Box::pin(frames_stream);
+
+            // Get the first frame (should contain the request message)
+            let request_frame = match frames.try_next().await {
+                Ok(Some(frame)) => frame,
+                Ok(None) => {
+                    return Response::from(Error::invalid_request("empty request body"));
+                }
+                Err(e) => {
+                    return Response::from(Error::invalid_request(format!(
+                        "failed to parse request frames: {}",
+                        e
+                    )));
+                }
+            };
+
+            // Decode the request message from the frame data
+            let message: TMReq = match codec.decode(&request_frame.data) {
+                Ok(m) => m,
+                Err(e) => {
+                    let err = Error::invalid_request(format!("failed to decode request: {}", e));
+                    return Response::from(err);
+                }
+            };
+
+            let req = ServerStreamingRequest::new(message);
+
+            // Get accept encodings from headers
+            let accept_encodings = headers
+                .get_all(CONNECT_ACCEPT_ENCODING)
+                .iter()
+                .filter_map(|value| value.to_str().ok().map(|s| s.to_string()))
+                .collect::<Vec<_>>();
+
+            match self(state, req).await {
+                Ok(res) => {
+                    let status = res.status;
+                    let metadata = res.metadata;
+                    let message_stream = res.message_stream;
+
+                    let mut builder = http::Response::builder().status(status);
+
+                    for (k, v) in metadata.into_iter() {
+                        if let Some(header_name) = k {
+                            builder = builder.header(header_name, v);
+                        }
+                    }
+
+                    builder = builder.header(
+                        CONTENT_TYPE,
+                        HeaderValue::from_str(&format!("application/connect+{}", res.codec.name()))
+                            .unwrap(),
+                    );
+
+                    for encoding in accept_encodings {
+                        builder = builder.header(CONNECT_ACCEPT_ENCODING, encoding);
+                    }
+
+                    // Convert ConnectFrame stream to bytes stream using high-level interface
+                    let frame_bytes_stream =
+                        crate::stream::frame_stream::frame_stream_to_bytes(message_stream);
+
+                    let result = builder.body(frame_bytes_stream).unwrap();
 
                     result.map(Body::from_stream)
                 }
