@@ -144,7 +144,6 @@ async fn say_hello_server_stream(
         .name
         .ok_or_else(|| Error::internal("Name is required"))?;
 
-    // Create a stream of responses
     let codec = connectrpc::Codec::Proto;
 
     // Generate multiple greeting messages for the given name
@@ -160,21 +159,9 @@ async fn say_hello_server_stream(
         },
     ];
 
-    // Encode each greeting as a Connect frame using the high-level API
-    let mut frames: Vec<Result<connectrpc::stream::ConnectFrame>> = greetings
-        .into_iter()
-        .map(|greeting| {
-            let encoded_bytes = codec.encode(&greeting);
-            Ok(connectrpc::stream::ConnectFrame::message(
-                encoded_bytes.into(),
-            ))
-        })
-        .collect();
-
-    // Add end-of-stream frame
-    frames.push(Ok(connectrpc::stream::ConnectFrame::end_of_stream()));
-
-    let frame_stream = stream::iter(frames);
+    // Convert message stream to frame stream using the high-level API
+    let message_stream = stream::iter(greetings.into_iter().map(Ok));
+    let frame_stream = connectrpc::stream::frame_stream::items_to_frame_stream(message_stream, codec);
 
     Ok(ServerStreamingResponse {
         status: connectrpc::http::StatusCode::OK,

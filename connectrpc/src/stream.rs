@@ -411,7 +411,38 @@ pub mod frame_stream {
     {
         ConnectFrame::bytes_stream(stream)
     }
+
+    /// Convert a stream of items to a stream of ConnectFrames.
+    ///
+    /// This automatically encodes each item using the provided codec and wraps it in a frame.
+    /// Use this when you have a stream of messages and want to convert them to frames.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let messages = stream::iter(vec![msg1, msg2, msg3]);
+    /// let frames = items_to_frame_stream(messages, codec);
+    /// ```
+    pub fn items_to_frame_stream<S, T>(
+        stream: S,
+        codec: Codec,
+    ) -> impl Stream<Item = Result<ConnectFrame>> + Send
+    where
+        S: Stream<Item = Result<T>> + Send + 'static,
+        T: crate::connect::EncodeMessage,
+    {
+        stream
+            .map(move |item_result| {
+                item_result.and_then(|item| {
+                    let encoded = codec.encode(&item);
+                    Ok(ConnectFrame::message(encoded.into()))
+                })
+            })
+            .chain(stream::once(async {
+                Ok(ConnectFrame::end_of_stream())
+            }))
+    }
 }
+
 
 #[cfg(test)]
 mod tests {
