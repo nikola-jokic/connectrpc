@@ -437,12 +437,9 @@ pub mod frame_stream {
                     Ok(ConnectFrame::message(encoded.into()))
                 })
             })
-            .chain(stream::once(async {
-                Ok(ConnectFrame::end_of_stream())
-            }))
+            .chain(stream::once(async { Ok(ConnectFrame::end_of_stream()) }))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

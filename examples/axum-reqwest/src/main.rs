@@ -161,7 +161,8 @@ async fn say_hello_server_stream(
 
     // Convert message stream to frame stream using the high-level API
     let message_stream = stream::iter(greetings.into_iter().map(Ok));
-    let frame_stream = connectrpc::stream::frame_stream::items_to_frame_stream(message_stream, codec);
+    let frame_stream =
+        connectrpc::stream::frame_stream::items_to_frame_stream(message_stream, codec);
 
     Ok(ServerStreamingResponse {
         status: connectrpc::http::StatusCode::OK,
