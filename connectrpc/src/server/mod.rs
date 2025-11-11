@@ -42,6 +42,8 @@ impl CommonServer {
         let codec = match headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
             Some("application/json") => Codec::Json,
             Some("application/proto") => Codec::Proto,
+            Some("application/connect+json") => Codec::Json,
+            Some("application/connect+proto") => Codec::Proto,
             Some(ct) => {
                 return Err(Error::unsupported_media_type(format!(
                     "unsupported Content-Type: {ct}"

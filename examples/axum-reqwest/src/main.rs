@@ -1,7 +1,8 @@
 use axum_reqwest::{HelloRequest, HelloResponse, HelloWorldServiceAsyncService};
 use connectrpc::http::Uri;
 use connectrpc::{
-    ClientStreamingRequest, ClientStreamingResponse, Error, Result, UnaryRequest, UnaryResponse,
+    ClientStreamingRequest, ClientStreamingResponse, Error, Result, ServerStreamingRequest,
+    ServerStreamingResponse, UnaryRequest, UnaryResponse,
 };
 use futures_util::{StreamExt, stream};
 use std::str::FromStr;
@@ -51,6 +52,37 @@ async fn main() -> anyhow::Result<()> {
     let response_message = stream.into_message();
     println!("Received stream response: {:?}", response_message);
     assert_eq!(response_message.message, "Hello Nikola, John");
+
+    // Test server streaming
+    println!("\n--- Testing Server Streaming ---");
+    let server_stream_response = client
+        .say_hello_server_stream(ServerStreamingRequest::new(HelloRequest {
+            name: Some("World".to_string()),
+        }))
+        .await
+        .map_err(|e| anyhow::anyhow!("RPC failed: {:?}", e))?;
+
+    // Convert the frame stream to messages
+    let messages: Vec<_> = server_stream_response.into_message_stream().collect().await;
+
+    println!("Received {} server stream messages:", messages.len());
+    for (i, msg_result) in messages.iter().enumerate() {
+        match msg_result {
+            Ok(msg) => println!("  [{}] {:?}", i, msg),
+            Err(e) => println!("  [{}] Error: {:?}", i, e),
+        }
+    }
+
+    assert_eq!(messages.len(), 3, "Expected 3 messages from server stream");
+    if let Ok(msg) = &messages[0] {
+        assert_eq!(msg.message, "Hello, World!");
+    }
+    if let Ok(msg) = &messages[1] {
+        assert_eq!(msg.message, "How are you, World?");
+    }
+    if let Ok(msg) = &messages[2] {
+        assert_eq!(msg.message, "Goodbye, World!");
+    }
 
     server_handle.abort();
     Ok(())
@@ -103,6 +135,62 @@ async fn say_hello_client_stream(
     }))
 }
 
+async fn say_hello_server_stream(
+    _state: State,
+    request: ServerStreamingRequest<HelloRequest>,
+) -> Result<ServerStreamingResponse<HelloResponse>> {
+    let name = request
+        .into_message()
+        .name
+        .ok_or_else(|| Error::internal("Name is required"))?;
+
+    // Create a stream of responses
+    let codec = connectrpc::Codec::Proto;
+
+    // Generate multiple greeting messages for the given name
+    let greetings = vec![
+        HelloResponse {
+            message: format!("Hello, {}!", name),
+        },
+        HelloResponse {
+            message: format!("How are you, {}?", name),
+        },
+        HelloResponse {
+            message: format!("Goodbye, {}!", name),
+        },
+    ];
+
+    // Encode each greeting as a Connect frame, then create an end frame
+    let mut frames: Vec<Result<connectrpc::stream::ConnectFrame>> = greetings
+        .into_iter()
+        .map(|greeting| {
+            let encoded_bytes = codec.encode(&greeting);
+            Ok(connectrpc::stream::ConnectFrame {
+                compressed: false,
+                end: false,
+                data: encoded_bytes.into(),
+            })
+        })
+        .collect();
+
+    // Add end-of-stream frame
+    frames.push(Ok(connectrpc::stream::ConnectFrame {
+        compressed: false,
+        end: true,
+        data: vec![].into(),
+    }));
+
+    let frame_stream = stream::iter(frames);
+
+    Ok(ServerStreamingResponse {
+        status: connectrpc::http::StatusCode::OK,
+        metadata: connectrpc::http::HeaderMap::new(),
+        codec,
+        message_stream: Box::pin(frame_stream),
+        _marker: std::marker::PhantomData,
+    })
+}
+
 async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
     let router = axum_reqwest::HelloWorldServiceAxumServer {
         // The server uses fields to store state and handlers
@@ -113,6 +201,7 @@ async fn spawn_server() -> anyhow::Result<JoinHandle<()>> {
         // Provide the handler function for the SayHello RPC
         say_hello,
         say_hello_client_stream,
+        say_hello_server_stream,
     }
     .into_router();
 

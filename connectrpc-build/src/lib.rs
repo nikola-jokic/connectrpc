@@ -288,6 +288,17 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
         let async_service_trait = format_ident!("{}AsyncService", service.rpc_trait_name);
         tokens.push(generate_async_service_trait(&service, &async_service_trait).into());
 
+        let has_unary = service
+            .methods
+            .iter()
+            .any(|m| matches!(m.call_type, CallType::Unary));
+        let has_streaming = service.methods.iter().any(|m| {
+            matches!(
+                m.call_type,
+                CallType::ClientStreaming | CallType::ServerStreaming | CallType::BidiStreaming
+            )
+        });
+
         if let Some(reqwest_features) = self.features.reqwest {
             let mut generates = vec![];
             if reqwest_features.proto {
@@ -300,9 +311,14 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
                 let client = format_ident!("{}Reqwest{}Client", service.rpc_trait_name, codec);
                 generates.push((client, codec));
             }
-            if !generates.is_empty() {
+            if has_unary {
                 use_items.push(parse_quote! {
-                    use ::connectrpc::client::{AsyncUnaryClient, AsyncStreamingClient};
+                    use ::connectrpc::client::AsyncUnaryClient;
+                });
+            }
+            if has_streaming {
+                use_items.push(parse_quote! {
+                    use ::connectrpc::client::AsyncStreamingClient;
                 })
             }
             for (client, codec) in generates {
@@ -458,6 +474,16 @@ fn generate_reqwest_client_trait_impl(
                     }
                 });
             }
+            CallType::ServerStreaming => {
+                client_methods.push(parse_quote! {
+                    async fn #name(
+                        &self,
+                        request: ::connectrpc::ServerStreamingRequest<#input_type>
+                    ) -> ::connectrpc::Result<::connectrpc::ServerStreamingResponse<#output_type>> {
+                        self.#name.call_server_streaming(#path, request).await
+                    }
+                });
+            }
             _ => {
                 panic!("Only unary methods are supported in reqwest client");
             }
@@ -496,6 +522,11 @@ fn generate_axum_server_struct(service: &Service, struct_name: &syn::Ident) -> s
             CallType::ClientStreaming => {
                 handler_constraints.push(quote! {
                     #handler: ::connectrpc::server::axum::RpcClientStreamingHandler<#input_type, #output_type, S>,
+                });
+            }
+            CallType::ServerStreaming => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcServerStreamingHandler<#input_type, #output_type, S>,
                 });
             }
             _ => {
@@ -556,6 +587,11 @@ fn generate_axum_server_impl(service: &Service, struct_name: &syn::Ident) -> syn
             CallType::ClientStreaming => {
                 handler_constraints.push(quote! {
                     #handler: ::connectrpc::server::axum::RpcClientStreamingHandler<#input_type, #output_type, S>,
+                });
+            }
+            CallType::ServerStreaming => {
+                handler_constraints.push(quote! {
+                    #handler: ::connectrpc::server::axum::RpcServerStreamingHandler<#input_type, #output_type, S>,
                 });
             }
             _ => {
