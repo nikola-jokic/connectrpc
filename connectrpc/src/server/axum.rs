@@ -9,7 +9,6 @@ use crate::{Codec, Result, ServerStreamingRequest, ServerStreamingResponse};
 use axum::body::{self, Body};
 use axum::http::{Method, Request};
 use axum::response::Response;
-use futures_util::StreamExt;
 use futures_util::stream;
 use prost::Message;
 use serde::{Serialize, de::DeserializeOwned};
@@ -179,49 +178,39 @@ where
 
     fn call(self, req: Request<Body>, state: TState, srv: CommonServer) -> Self::Future {
         Box::pin(async move {
-            // Parse the request (similar to unary, but wrapped as ServerStreamingRequest)
+            use crate::stream::ConnectFrame;
+            use futures_util::TryStreamExt;
+
+            // Parse the request
             let (parts, body) = req.into_parts();
             let http::request::Parts { headers, .. } = parts;
 
             // Parse headers to get the codec
-            let codec = match srv.parse_unary_headers(&headers) {
+            let codec = match srv.parse_streaming_headers(&headers) {
                 Ok(c) => c,
                 Err(e) => return Response::from(e),
             };
 
-            // Read the entire body
-            let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
-                Ok(b) => b,
+            // Parse frames from the request body
+            let frames_stream = ConnectFrame::body_stream(body);
+            let mut frames = Box::pin(frames_stream);
+
+            // Get the first frame (should contain the request message)
+            let request_frame = match frames.try_next().await {
+                Ok(Some(frame)) => frame,
+                Ok(None) => {
+                    return Response::from(Error::invalid_request("empty request body"));
+                }
                 Err(e) => {
-                    let err = Error::internal(format!("failed to read request body: {}", e));
-                    return Response::from(err);
+                    return Response::from(Error::invalid_request(format!(
+                        "failed to parse request frames: {}",
+                        e
+                    )));
                 }
             };
 
-            // For server streaming requests, the body contains frame-encoded messages
-            // Parse the first frame
-            let frame_data = if body_bytes.len() >= 5 {
-                // Read flags (1 byte) and length (4 bytes big-endian)
-                let _flags = body_bytes[0];
-                let length = u32::from_be_bytes([
-                    body_bytes[1],
-                    body_bytes[2],
-                    body_bytes[3],
-                    body_bytes[4],
-                ]) as usize;
-
-                // Extract the message data
-                if body_bytes.len() >= 5 + length {
-                    &body_bytes[5..5 + length]
-                } else {
-                    &body_bytes[5..]
-                }
-            } else {
-                &body_bytes[..]
-            };
-
-            // Decode the request message
-            let message: TMReq = match codec.decode(frame_data) {
+            // Decode the request message from the frame data
+            let message: TMReq = match codec.decode(&request_frame.data) {
                 Ok(m) => m,
                 Err(e) => {
                     let err = Error::invalid_request(format!("failed to decode request: {}", e));
@@ -262,29 +251,11 @@ where
                         builder = builder.header(CONNECT_ACCEPT_ENCODING, encoding);
                     }
 
-                    // Convert ConnectFrame stream to bytes stream
-                    let bytes_stream = message_stream.map(|frame_result| {
-                        frame_result.map(|frame| {
-                            // Encode the frame back to bytes
-                            use bytes::BufMut;
-                            let mut encoded = bytes::BytesMut::with_capacity(5 + frame.data.len());
+                    // Convert ConnectFrame stream to bytes stream using high-level interface
+                    let frame_bytes_stream =
+                        crate::stream::frame_stream::frame_stream_to_bytes(message_stream);
 
-                            // Flags: bit 0 = compressed, bit 1 = end-of-stream
-                            let flags = if frame.compressed { 0b1 } else { 0 }
-                                | if frame.end { 0b10 } else { 0 };
-                            encoded.put_u8(flags);
-
-                            // Length (big-endian)
-                            encoded.put_u32(frame.data.len() as u32);
-
-                            // Data
-                            encoded.extend_from_slice(&frame.data);
-
-                            encoded.freeze()
-                        })
-                    });
-
-                    let result = builder.body(bytes_stream).unwrap();
+                    let result = builder.body(frame_bytes_stream).unwrap();
 
                     result.map(Body::from_stream)
                 }

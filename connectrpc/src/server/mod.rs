@@ -42,6 +42,30 @@ impl CommonServer {
         let codec = match headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
             Some("application/json") => Codec::Json,
             Some("application/proto") => Codec::Proto,
+            Some(ct) => {
+                return Err(Error::unsupported_media_type(format!(
+                    "unsupported Content-Type: {ct}"
+                )));
+            }
+            None => return Err(Error::invalid_request("missing Content-Type header")),
+        };
+        Ok(codec)
+    }
+
+    pub fn parse_streaming_headers(&self, headers: &HeaderMap) -> Result<Codec> {
+        // Do not require version to be specified: https://connectrpc.com/docs/curl-and-other-clients#curl
+        let version = headers
+            .get(CONNECT_PROTOCOL_VERSION)
+            .cloned()
+            .unwrap_or(CONNECT_PROTOCOL_VERSION_1);
+        if version != CONNECT_PROTOCOL_VERSION_1 {
+            return Err(Error::unsupported_media_type(format!(
+                "unsupported connect-protocol-version version: {:?}",
+                version
+            )));
+        }
+
+        let codec = match headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()) {
             Some("application/connect+json") => Codec::Json,
             Some("application/connect+proto") => Codec::Proto,
             Some(ct) => {
