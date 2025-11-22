@@ -59,6 +59,20 @@ impl Error {
         Error::ConnectError(Box::new(ConnectError::new(ConnectCode::Internal, message)))
     }
 
+    /// Creates arbitrary connect error with the given code and message.
+    ///
+    /// Just a helper to avoid:
+    /// ```rust
+    /// Error::ConnectError(Box::new(ConnectError::new(code, msg)))
+    /// ```
+    /// Instead, you can use:
+    /// ```rust
+    /// Error::connect_error(code, msg)
+    /// ```
+    pub fn connect_error(code: ConnectCode, msg: impl fmt::Display) -> Error {
+        Error::ConnectError(Box::new(ConnectError::new(code, msg)))
+    }
+
     /// Create an unsupported media type error with the given message.
     /// This is typically used when the message codec is not supported by the server.
     ///

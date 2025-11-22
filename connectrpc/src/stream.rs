@@ -431,12 +431,7 @@ pub mod frame_stream {
         T: crate::connect::EncodeMessage,
     {
         stream
-            .map(move |item_result| {
-                item_result.and_then(|item| {
-                    let encoded = codec.encode(&item);
-                    Ok(ConnectFrame::message(encoded.into()))
-                })
-            })
+            .map_ok(move |item| ConnectFrame::message(codec.encode(&item).into()))
             .chain(stream::once(async { Ok(ConnectFrame::end_of_stream()) }))
     }
 }
