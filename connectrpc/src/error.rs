@@ -60,15 +60,7 @@ impl Error {
     }
 
     /// Creates arbitrary connect error with the given code and message.
-    ///
-    /// Just a helper to avoid:
-    /// ```rust
-    /// Error::ConnectError(Box::new(ConnectError::new(code, msg)))
-    /// ```
-    /// Instead, you can use:
-    /// ```rust
-    /// Error::connect_error(code, msg)
-    /// ```
+    /// It is just a wrapper around `Error::ConnectError(Box::new(ConnectError::new(code, msg)))`
     pub fn connect_error(code: ConnectCode, msg: impl fmt::Display) -> Error {
         Error::ConnectError(Box::new(ConnectError::new(code, msg)))
     }
